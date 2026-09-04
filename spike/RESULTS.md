@@ -81,7 +81,7 @@ _UNKNOWN (c): aborting a streaming turn mid-generation without killing the proce
 SPIKE 03 — aborting a streaming turn mid-generation
 
 EXPERIMENT A — abort WITHOUT yielding inference.output (the trap)
-      [runner] abort observed at token 5 — closing stream
+      [runner] abort observed at token 6 — closing stream
    naive abort
       crash: Inference output not found
       → TRAP CONFIRMED — this would kill the process

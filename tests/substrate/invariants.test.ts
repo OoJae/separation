@@ -97,6 +97,63 @@ describe("repo invariants (machine-checked, not asserted in prose)", () => {
 		expect(FILES.filter((f) => code(f).includes("Math.random"))).toEqual([])
 	})
 
+	/**
+	 * THE THIN-AGENCY INVARIANT.
+	 *
+	 * "What did the language models decide that a solver could not?" is the most dangerous
+	 * question this project faces. The answer is that the feasibility layer emits genuinely
+	 * unrankable option sets — and that has to be a fact about the code, not a promise in a
+	 * README. If any of these words appear, a solver could take an argmax and the models would
+	 * be decorative.
+	 */
+	it("the feasibility layer contains no ranking vocabulary whatsoever", () => {
+		const BANNED = ["score", "rank", "best", "recommended", "utility", "sortKey", "preference", "priority"]
+		const offenders: string[] = []
+		for (const file of FILES) {
+			if (!file.startsWith(join("src", "domain", "feasibility"))) continue
+			const body = code(file)
+			for (const word of BANNED) {
+				if (new RegExp(`\\b${word}`, "i").test(body)) offenders.push(`${file}: ${word}`)
+			}
+		}
+		expect(offenders).toEqual([])
+	})
+
+	/**
+	 * The decisive information — fuel state, a deteriorating passenger, a crew duty limit — is
+	 * private to the aircraft and obtainable only by asking, in natural language, while the clock
+	 * runs. That must be STRUCTURAL. If the prober could import a PilotSheet, the whole argument
+	 * would collapse into "we politely chose not to look".
+	 */
+	it("nothing in the feasibility layer can reach a PilotSheet", () => {
+		const offenders: string[] = []
+		for (const file of FILES) {
+			if (!file.startsWith(join("src", "domain", "feasibility"))) continue
+			const body = code(file)
+			for (const forbidden of ["PilotSheet", "private-sheet", "participants/pilot"]) {
+				if (body.includes(forbidden)) offenders.push(`${file}: ${forbidden}`)
+			}
+		}
+		expect(offenders).toEqual([])
+	})
+
+	/**
+	 * The FeasibilityProber sees the world as flown; Phase 3's JointProber will additionally see
+	 * clearances formed but not committed. Those are different computations, and keeping the
+	 * signatures distinct is what stops them quietly becoming the same one.
+	 */
+	it("the feasibility prober takes no pending-clearance parameter", () => {
+		const prober = code(join("src", "domain", "feasibility", "prober.ts"))
+		expect(/pending\s*[:?]/.test(prober)).toBe(false)
+	})
+
+	it("domain code never imports the framework", () => {
+		const offenders = FILES.filter(
+			(f) => f.startsWith(join("src", "domain")) && read(f).includes("@mozaik-ai/core"),
+		)
+		expect(offenders).toEqual([])
+	})
+
 	it("no source file imports rstest", () => {
 		expect(FILES.filter((f) => read(f).includes("@rstest/core"))).toEqual([])
 	})

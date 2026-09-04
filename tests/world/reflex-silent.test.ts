@@ -139,7 +139,8 @@ describe("advisory mechanics", () => {
 		})
 
 		it("never lets two aircraft pick the same sense, over the whole address space", () => {
-			for (const [altA, altB] of [[6_000, 6_000], [6_000, 6_010], [6_000, 6_024], [7_000, 6_000]]) {
+			const pairs: readonly (readonly [number, number])[] = [[6_000, 6_000], [6_000, 6_010], [6_000, 6_024], [7_000, 6_000]]
+			for (const [altA, altB] of pairs) {
 				const addrA = modeSAddress("AAL221"), addrB = modeSAddress("SWA455")
 				expect(isComplementary(
 					selectSense(altA, altB, addrA, addrB),
