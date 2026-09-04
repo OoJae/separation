@@ -54,7 +54,7 @@ takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 | 1 | Substrate — close the gaps the runtime leaves | ✅ |
 | 2 | Deterministic world, zero tokens | ✅ |
 | 3 | The interlock — **the theorem as a test** | ✅ |
-| 4 | Live controllers, three vendors | ⬜ |
+| 4 | Live controllers, three vendors | ✅ mechanism · ⬜ live measurement |
 
 ## Reproduce
 

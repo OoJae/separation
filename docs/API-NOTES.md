@@ -378,3 +378,27 @@ surfacing as an unhandled rejection (#5) rather than a clear error.
 
 **Our workaround:** every Phase 2 participant is loop-less, and the runtime asserts `MOZAIK_API_KEY`
 is unset before construction.
+
+---
+
+## 19. `DefaultInferenceRunner` is exported but cannot be constructed from outside the package
+
+```ts
+export declare class DefaultInferenceRunner implements InferenceRunner {
+    constructor(supportedModels: GenerativeModel[], requestValidator: InferenceInputValidator);
+```
+
+`InferenceInputValidator` — the required second argument — is **not** in the export list. The only
+way to obtain a working `DefaultInferenceRunner` is `initializeRuntime` with no custom runner,
+which is precisely the case in which you cannot wrap it. A consumer wanting to add caching, budget
+control, latency measurement or multiplexing around the default runner has no supported path.
+
+Passing `undefined as any` compiles and works on paths that never call `.run()`, then throws on
+the first real call — the worst kind of type hole.
+
+**Suggested fix:** export `InferenceInputValidator`, or give `DefaultInferenceRunner` a static
+factory that constructs one.
+
+**Our workaround:** dispatch to `supportedModels[i].endpoint.infer(input)` directly — the endpoints
+*are* exported. That is what `DefaultInferenceRunner.run` does minus the validation step; we
+validate reasoning effort ourselves in `model-roster.ts`.

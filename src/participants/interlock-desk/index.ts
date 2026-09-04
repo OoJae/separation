@@ -1,9 +1,10 @@
-import { FunctionCallItem } from "@mozaik-ai/core"
+import { FunctionCallItem, Participant } from "@mozaik-ai/core"
 import type { ExecutableTransition, InferenceInput, InterceptionHandler } from "@mozaik-ai/core"
 import type { AircraftState } from "../../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../../domain/airspace/encounter"
 import { evaluateJoint, narrowToSafe, type JointHazard } from "../../domain/interlock/joint-prober"
 import type { ManeuverWindow } from "../../domain/airspace/maneuver-window"
+import type { IntentRegistry } from "../../domain/interlock/intent-registry"
 import { WorldEvent } from "../../events/world-events"
 import type { OutboxDispatcher } from "../../support/outbox"
 import type { Clock } from "../../support/ports"
@@ -32,6 +33,8 @@ export type InterlockDeskDeps = {
 	readonly settleMs: number
 	/** Alternatives to try when a joint hazard is found, most useful first. */
 	readonly narrowingCandidates: (subject: PendingClearance) => readonly PendingClearance[]
+	/** Announced intents, so a commit carrying only a clearanceId can be resolved. */
+	readonly intents: IntentRegistry
 }
 
 /**
@@ -48,12 +51,31 @@ export type InterlockDeskDeps = {
  * and reasons about it. A refusal would make this a veto with extra steps; a narrowing keeps the
  * aircraft's objective reachable.
  */
-export class InterlockDesk {
+export type Objection = {
+	readonly by: string
+	readonly clearanceId: string
+	readonly reason: string
+	readonly suggestTargetAltFt?: number
+}
+
+export class InterlockDesk extends Participant {
 	private readonly pending = new PendingSet()
 	private readonly decisions: DeskDecision[] = []
+	private readonly objections = new Map<string, Objection>()
 	private counter = 0
 
-	constructor(private readonly deps: InterlockDeskDeps) {}
+	/**
+	 * A participant, because it announces — held, narrowed, released — and `sendEvent` refuses a
+	 * sender that has not joined. It also makes the thesis literal: everything that matters is on
+	 * the bus, the airlock included. No loop, no model: it exercises authority over TIMING only.
+	 */
+	private constructor(private readonly deps: InterlockDeskDeps) {
+		super({ id: "interlock-desk", name: "interlock-desk", role: "agent", capabilities: ["airlock"] }, [])
+	}
+
+	static init(deps: InterlockDeskDeps): InterlockDesk {
+		return new InterlockDesk(deps)
+	}
 
 	pendingSize(): number {
 		return this.pending.size()
@@ -66,6 +88,19 @@ export class InterlockDesk {
 	/** Quiescence: nothing is half-committed. */
 	isQuiescent(): boolean {
 		return this.pending.isEmpty()
+	}
+
+	/**
+	 * A peer's objection against a clearance that may still be forming. Recorded now, applied at
+	 * adjudication — which is why it can land INSIDE a turn: the objected-to controller is
+	 * suspended in the airlock at that moment, and its commit has not executed yet.
+	 */
+	object(objection: Objection): void {
+		this.objections.set(objection.clearanceId, objection)
+	}
+
+	objectionsSeen(): number {
+		return this.objections.size
 	}
 
 	handler(): InterceptionHandler {
@@ -86,7 +121,7 @@ export class InterlockDesk {
 				if (clearance === null) return transition
 
 				const turnId = `turn-${++desk.counter}`
-				desk.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, "interlock-desk", {
+				desk.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, desk.getId(), {
 					event: "interlock.held", turnId, clearanceId: clearance.id, pendingSetSize: desk.pending.size() + 1,
 				})
 
@@ -140,22 +175,31 @@ export class InterlockDesk {
 
 		for (const turn of held) {
 			const hazard = verdict.hazards.find((h) => h.clearanceIds.includes(turn.clearance.id)) ?? null
+			const objection = this.objections.get(turn.clearance.id) ?? null
 			let outcome: DeskDecision["outcome"] = "clean"
 			let committed = turn.clearance
 
-			if (hazard !== null) {
+			if (hazard !== null || objection !== null) {
 				const others = held.filter((h) => h.turnId !== turn.turnId).map((h) => h.clearance)
+				// A peer's counter-proposal is tried FIRST — the objector said what it would accept.
+				const candidates = [
+					...(objection?.suggestTargetAltFt !== undefined
+						? [{ ...turn.clearance, id: `${turn.clearance.id}/peer-${objection.suggestTargetAltFt}`,
+							command: { ...turn.clearance.command, targetAltFt: objection.suggestTargetAltFt } }]
+						: []),
+					...this.deps.narrowingCandidates(turn.clearance),
+				]
 				const narrowed = narrowToSafe({
 					world: this.deps.world(),
 					others,
 					subject: turn.clearance,
-					candidates: this.deps.narrowingCandidates(turn.clearance),
+					candidates,
 					horizonSec: this.deps.horizonSec,
 				})
 				if (narrowed !== null) {
 					outcome = "narrowed"
 					committed = narrowed
-					this.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, "interlock-desk", {
+					this.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, this.getId(), {
 						event: "interlock.narrowed", turnId: turn.turnId,
 						from: turn.clearance.id, to: narrowed.id,
 					})
@@ -165,12 +209,18 @@ export class InterlockDesk {
 			}
 
 			this.decisions.push({ turnId: turn.turnId, outcome, committed, hazard })
+			this.objections.delete(turn.clearance.id)
 			this.pending.remove(turn.turnId)
 			turn.release(committed)
 		}
 	}
 
-	/** Structural read — event and tool payloads lose their prototype (API-NOTES #12). */
+	/**
+	 * A commit may carry the full clearance (after a narrowing rewrote it) or only a clearanceId
+	 * (as a model proposes by id and then commits by id). Resolve the latter through the intent
+	 * registry — the thing `intent.forming` announced. Structural reads throughout: payloads lose
+	 * their prototype in transit (API-NOTES #12).
+	 */
 	private parse(call: FunctionCallItem): PendingClearance | null {
 		try {
 			const args = JSON.parse(call.args) as {
@@ -180,16 +230,18 @@ export class InterlockDesk {
 				committedTick?: number
 				effectiveTick?: number
 			}
-			if (typeof args.clearanceId !== "string" || typeof args.callsign !== "string" || args.command === undefined) {
-				return null
+			if (typeof args.clearanceId !== "string") return null
+
+			if (typeof args.callsign === "string" && args.command !== undefined) {
+				return {
+					id: args.clearanceId,
+					callsign: args.callsign,
+					command: args.command,
+					committedTick: args.committedTick ?? 0,
+					effectiveTick: args.effectiveTick ?? 0,
+				}
 			}
-			return {
-				id: args.clearanceId,
-				callsign: args.callsign,
-				command: args.command,
-				committedTick: args.committedTick ?? 0,
-				effectiveTick: args.effectiveTick ?? 0,
-			}
+			return this.deps.intents.resolve(args.clearanceId) ?? null
 		} catch {
 			return null
 		}

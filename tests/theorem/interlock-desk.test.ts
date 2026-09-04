@@ -4,6 +4,7 @@ import {
 	type InferenceInput, type InferenceOutput, type InferenceRunner, type SemanticEvent, type Tool,
 } from "@mozaik-ai/core"
 import { COMMIT_TOOL, InterlockDesk } from "../../src/participants/interlock-desk"
+import { IntentRegistry } from "../../src/domain/interlock/intent-registry"
 import { OutboxDispatcher } from "../../src/support/outbox"
 import { VirtualClock } from "../../src/support/ports"
 import {
@@ -53,13 +54,14 @@ function harness() {
 	const published: { type: string; payload: unknown }[] = []
 	const outbox = new OutboxDispatcher((event) => published.push({ type: event.type, payload: event.payload }), clock)
 
-	const desk = new InterlockDesk({
+	const desk = InterlockDesk.init({
 		world: () => [...INITIAL],
 		windows: WINDOWS,
 		horizonSec: HORIZON_S,
 		clock,
 		outbox,
 		settleMs: SETTLE_MS,
+		intents: new IntentRegistry(),
 		narrowingCandidates: (subject) =>
 			subject.callsign === "AAL221" ? narrowingCandidatesForA() : [],
 	})
