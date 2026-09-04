@@ -1,0 +1,10 @@
+node_modules/
+dist/
+traces/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Internal planning notes — not for the public repo
+buildphases.md
