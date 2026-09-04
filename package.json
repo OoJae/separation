@@ -10,7 +10,8 @@
     "test:watch": "rstest watch",
     "typecheck": "tsc --noEmit",
     "verify:braid-2": "tsx scripts/verify-braid-2.ts",
-    "regen:heading-golden": "tsx scripts/regen-heading-golden.ts"
+    "regen:heading-golden": "tsx scripts/regen-heading-golden.ts",
+    "verify:reflex-silent": "tsx scripts/verify-reflex-silent.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",
