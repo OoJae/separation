@@ -92,7 +92,9 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
 			return await fn()
 		} catch (error) {
 			lastError = error
-			if (attempt < attempts - 1) await sleep(base * 2 ** attempt)
+			// `1 << attempt` rather than `2 ** attempt`: the ** operator shares Math.pow's
+			// implementation-defined semantics and is banned repo-wide (see invariants.test.ts).
+			if (attempt < attempts - 1) await sleep(base * (1 << attempt))
 		}
 	}
 	throw lastError

@@ -289,3 +289,92 @@ agent: { manifest, developerMessage, tools, memory: agent.getMemory().getContext
 That is the agent's entire conversation, on every event, for every turn. Worth making explicit in the
 docs: it is a privacy consideration for anyone whose contexts contain user data, a bandwidth
 consideration at high event rates, and a determinism consideration for anyone recording runs.
+
+---
+
+## 15. `EventProcessor.process` neither awaits nor catches
+
+```ts
+process(event, consumer) {
+    for (const handler of consumer.getHandlers()) {
+        if (handler.specification.isSatisfiedBy({ event, participant: consumer })) {
+            handler.processor.apply({ event, participant: consumer })
+        }
+    }
+}
+```
+
+Two consequences, both verified in `spike/04-loopless-participant.ts`:
+
+**A throwing processor escapes into the publisher.** `RuntimeService.publish` has no `try/catch`
+either, so an exception in one participant's processor propagates out of whoever called `sendEvent`
+— usually an unrelated participant that merely announced something.
+
+**And it starves every participant after it.** Fan-out is a `for` loop, so the throw abandons the
+iteration. Participants later in `getParticipants()` never see the event at all. In a system where
+silence is read as consent, one bad handler silently disenfranchises everyone downstream of it.
+
+`SituationProcessor.apply` is typed `void | Promise<void>`, but the returned promise is discarded, so
+an `async` processor's rejection is unhandled (see #5) and its ordering is unspecified.
+
+**Our workaround:** two machine-checked invariants — no `SituationProcessor.apply` may be `async`,
+and none may contain a `throw`. A rejected command **publishes** `world.command.rejected` instead.
+
+---
+
+## 16. `ParticipantManifest` and `ParticipantRole` are not exported, and the role vocabulary is closed
+
+`Participant` is exported; its manifest type is not (`index.d.ts:628`). A subclass must therefore
+write a bare object literal, which is fine but undiscoverable.
+
+More substantively, `ParticipantRole = "agent" | "human"`. There is no role for a participant that is
+neither — a clock, a physics integrator, a deterministic prober, a market. The framework's own
+blackboard thesis (HEARSAY-II) is precisely about *heterogeneous* experts sharing one board, and
+several of ours are not inferential at all. They currently declare `role: "agent"` and lie.
+
+**Suggested fix:** a third role (`"machine"` / `"process"`), or documenting that `role` is advisory.
+
+---
+
+## 17. Prototype loss is narrower than it looks — it is the loop visitor, not the bus
+
+Refining #12. `sendEvent` passes the `SemanticEvent` **instance** through by reference, and a payload
+handed to `new SemanticEvent(...)` keeps its prototype. Verified: a `FunctionCallOutputItem`
+published directly still answers `getType()` on the far side.
+
+The loss is introduced solely by `EventPublisherLoopVisitor.publish`, which spreads
+(`{...payload, loopId}`). So **framework loop events have structural payloads; your own events do
+not have to.** Worth documenting, because the natural inference from #12 — "never trust a payload" —
+is stricter than reality and would push consumers into unnecessary defensive code.
+
+---
+
+## 18. A non-Agent `Participant` may take a turn, until telemetry is switched on
+
+`runLoop(agentId, ...)` accepts any joined participant id. With `MOZAIK_API_KEY` unset a plain
+`Participant` completes a full turn — verified in `spike/05-bare-runloop.ts`.
+
+Switch telemetry on and the same code dies:
+
+```
+agent.getDeveloperMessage is not a function
+```
+
+because `EventPublisherLoopVisitor.publish` does:
+
+```ts
+const participant = this.runtime.getParticipant(this.agentId)
+const agent = participant as Agent
+if (agent) { /* getDeveloperMessage(), getTools(), getMemory() */ }
+```
+
+The cast is unchecked and `if (agent)` is a truthiness test that can never be false for a joined
+participant — so the guard reads like a type check but is not one.
+
+The failure mode is the bad kind: invisible in development, triggered by an environment variable, and
+surfacing as an unhandled rejection (#5) rather than a clear error.
+
+**Suggested fix:** `if (participant instanceof Agent)`.
+
+**Our workaround:** every Phase 2 participant is loop-less, and the runtime asserts `MOZAIK_API_KEY`
+is unset before construction.

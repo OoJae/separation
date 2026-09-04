@@ -81,7 +81,7 @@ _UNKNOWN (c): aborting a streaming turn mid-generation without killing the proce
 SPIKE 03 — aborting a streaming turn mid-generation
 
 EXPERIMENT A — abort WITHOUT yielding inference.output (the trap)
-      [runner] abort observed at token 6 — closing stream
+      [runner] abort observed at token 5 — closing stream
    naive abort
       crash: Inference output not found
       → TRAP CONFIRMED — this would kill the process
@@ -96,4 +96,44 @@ EXPERIMENT B — abort AND yield a synthesized inference.output (the fix)
 EXPERIMENT C — orphan repair
       every function_call has a matching output : PASS
       (this is also what makes 'being overruled' reasoning material)
+```
+
+## `04-loopless-participant.ts` — PASS
+
+_PHASE 2 GATE: a plain Participant subclass with handlers and no AgentLoop — the pattern that makes zero-token structural rather than disciplinary_
+
+```
+SPIKE 04 — loop-less participant pattern
+
+   PASS  a bare Participant subclass joins and its handler fires with NO AgentLoop
+   PASS  manifest object literal is accepted without ParticipantManifest
+   PASS  capabilities survive on the manifest
+   PASS  event.type is a live field (the event instance is passed by reference)
+   PASS  a payload passed directly KEEPS its prototype via sendEvent  — prototype loss (#12) comes from the loop visitor's {...payload} spread, not from sendEvent
+   PASS  a sync throw in apply ESCAPES publish into the caller  — processor exploded
+   PASS  and it starves every participant after the thrower  — => Phase 2 machine-checks that no processor throws and none is async
+
+  7/7 assertions passed
+```
+
+## `05-bare-runloop.ts` — PASS
+
+_PHASE 2 GATE: whether a non-Agent Participant may take a turn, and the telemetry-enabled crash that says it may not_
+
+```
+SPIKE 05 — runLoop on a bare (non-Agent) Participant
+  MOZAIK_API_KEY is unset
+
+   answers: ["seized"]
+   crash:   none
+   PASS  with the cloud disabled, a non-Agent Participant completes a full turn
+   PASS  with the cloud ENABLED, the same turn dies: "agent.getDeveloperMessage is not a function"
+
+   FINDING (API-NOTES #18): EventPublisherLoopVisitor casts the looping participant
+   to Agent and guards it with `if (agent)` — a truthiness check that can never be
+   false — so any non-Agent Participant running a loop crashes the moment telemetry
+   is switched on. The failure is invisible until someone sets an API key.
+
+   => Phase 2 needs none of this (all participants are loop-less).
+   => Guard: assert MOZAIK_API_KEY is unset before constructing the runtime.
 ```

@@ -12,6 +12,8 @@ const SPIKES = [
 	["01-rewrite-readback.ts", "UNKNOWN (a)+(b): custom runner multiplex, and a peer's objection landing as rewritten function_call args inside a still-open turn"],
 	["02-cancellation.ts", "Can an InterceptionHandler halt a turn? (corrected finding + the honest alternative)"],
 	["03-abort.ts", "UNKNOWN (c): aborting a streaming turn mid-generation without killing the process"],
+	["04-loopless-participant.ts", "PHASE 2 GATE: a plain Participant subclass with handlers and no AgentLoop — the pattern that makes zero-token structural rather than disciplinary"],
+	["05-bare-runloop.ts", "PHASE 2 GATE: whether a non-Agent Participant may take a turn, and the telemetry-enabled crash that says it may not"],
 ]
 
 const out: string[] = [

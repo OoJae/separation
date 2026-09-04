@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@rstest/core"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { HEADING_TABLE_SIZE } from "../../src/domain/airspace/units"
 
 function sourceFiles(dir: string): string[] {
 	const out: string[] = []
@@ -53,6 +54,47 @@ describe("repo invariants (machine-checked, not asserted in prose)", () => {
 		])
 		const offenders = FILES.filter((f) => !allowed.has(f) && /\bSWAP\b/.test(code(f)))
 		expect(offenders).toEqual([])
+	})
+
+	/**
+	 * THE DETERMINISM BAN. IEEE-754 mandates correct rounding for + - * / and sqrt, so those are
+	 * bit-identical everywhere. It mandates nothing for the transcendentals, so a different engine
+	 * or version may differ in the last bit. The physics hot path therefore uses arithmetic and
+	 * sqrt only, and every angle is a table lookup.
+	 *
+	 * This test must exist BEFORE the first geometry file, not after — that is the difference
+	 * between a determinism claim that is provable and one that is retrofitted.
+	 */
+	it("no transcendental is evaluated at runtime outside the heading table", () => {
+		const BANNED = [
+			"Math.sin", "Math.cos", "Math.tan", "Math.asin", "Math.acos", "Math.atan",
+			"Math.atan2", "Math.hypot", "Math.pow", "Math.exp", "Math.log", "Math.log2",
+			"Math.log10", "Math.log1p", "Math.expm1", "Math.cbrt", "Math.sinh", "Math.cosh",
+			"Math.tanh", "Math.random",
+		]
+		const EXEMPT = join("src", "domain", "airspace", "heading-table.ts")
+
+		const offenders: string[] = []
+		for (const file of FILES) {
+			if (file === EXEMPT) continue
+			const body = code(file)
+			for (const banned of BANNED) if (body.includes(banned)) offenders.push(`${file}: ${banned}`)
+			// The ** operator shares Math.pow's implementation-defined semantics. Comments are
+			// already stripped by code(), so a JSDoc opener cannot false-positive here.
+			if (/[^*]\*\*[^*]/.test(body)) offenders.push(`${file}: ** operator`)
+		}
+		expect(offenders).toEqual([])
+	})
+
+	it("the heading table is the single exemption, and it is genuinely used", () => {
+		const table = read(join("src", "domain", "airspace", "heading-table.ts"))
+		expect(table).toContain("Math.sin")
+		expect(table).toContain("Math.cos")
+		expect(HEADING_TABLE_SIZE).toBe(18_000)
+	})
+
+	it("nothing reads Math.random — scenarios draw from the seeded Rng", () => {
+		expect(FILES.filter((f) => code(f).includes("Math.random"))).toEqual([])
 	})
 
 	it("no source file imports rstest", () => {

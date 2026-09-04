@@ -1,6 +1,7 @@
 import type { ExecutableTransition, InterceptionHandler, SemanticEvent } from "@mozaik-ai/core"
 import type { IdentityBook } from "../identity-book"
 import type { Clock } from "../../support/ports"
+import { LoopAlias } from "./loop-alias"
 
 export type TapeEntry =
 	| {
@@ -34,6 +35,7 @@ export type TapeEntry =
  */
 export class Recorder {
 	private readonly entries: TapeEntry[] = []
+	private readonly loopAlias = new LoopAlias()
 	private obs = 0
 
 	constructor(
@@ -65,7 +67,9 @@ export class Recorder {
 			type: event.type,
 			producer: this.deps.identity.nameOf(event.producerId),
 			seq: typeof payload?.seq === "number" ? payload.seq : null,
-			loopId: typeof payload?.loopId === "string" ? payload.loopId : null,
+			// Aliased, never raw: AgentLoop.create mints a crypto.randomUUID() per loop, so a
+			// raw loopId would make the tape differ on every run. See loop-alias.ts.
+			loopId: typeof payload?.loopId === "string" ? this.loopAlias.aliasFor(payload.loopId) : null,
 		})
 	}
 
