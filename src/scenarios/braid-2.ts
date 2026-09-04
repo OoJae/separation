@@ -1,5 +1,7 @@
 import type { AircraftState } from "../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../domain/airspace/encounter"
+import { computeWindow, levelChangeDurationS, turnAndEstablishDurationS, type ManeuverWindow } from "../domain/airspace/maneuver-window"
+import { eastOf } from "../domain/airspace/heading-table"
 import { degreesToMdeg, secondsToTick } from "../domain/airspace/units"
 
 /**
@@ -75,3 +77,70 @@ export function clearanceB(committedSeconds = 0): PendingClearance {
  */
 export const AAL221_ARMED = AAL221
 export const INITIAL_ARMED = INITIAL
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// GATES AND WINDOWS
+//
+// The gate DISTANCES below are calibrated: they are chosen so both manoeuvre windows land
+// inside the admissible band. That is a scenario parameter and it is stated openly here and in
+// the README rather than buried.
+//
+// What is NOT calibrated is the band itself, which is derived from the controller-latency model
+// in src/domain/interlock/decision-latency.ts and has no geometry in it at all.
+// tests/theorem/window-band.test.ts COMPUTES the band and asserts these gates lie strictly
+// inside it — so changing the latency model fails that test and tells you to re-derive the
+// gates, instead of letting a stale calibration slide through.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** BAYLR — AAL221 must be level at 4000 by here. */
+export const GATE_A_NM = 12.0
+/** CARDL — SWA455 must be established with 0.60 NM of in-trail offset by here. */
+export const GATE_B_NM = 3.86
+
+export const REQUIRED_OFFSET_NM = 0.6
+export const TURN_DEGREES = 20
+export const TURN_RATE_DEG_PER_S = 3
+
+/** Descending 5000 ft at 2000 fpm takes 150 s, and the gate does not move while it happens. */
+export const MANEUVER_A_DURATION_S = levelChangeDurationS(9_000, 4_000, DESCENT_FPM)
+
+/**
+ * B's turn is quick; what costs time is flying the new heading long enough to actually be
+ * displaced. Counting only the turn would give B a window of minutes and quietly destroy the
+ * scenario. sin(20 degrees) is read from the heading table, since Math.sin is banned here.
+ */
+export const MANEUVER_B_DURATION_S = turnAndEstablishDurationS({
+	turnDegrees: TURN_DEGREES,
+	turnRateDegPerSec: TURN_RATE_DEG_PER_S,
+	requiredOffsetNm: REQUIRED_OFFSET_NM,
+	groundspeedKt: SWA455.groundspeedKt,
+	sinOffAngle: eastOf(degreesToMdeg(TURN_DEGREES)),
+})
+
+export const WINDOW_A: ManeuverWindow = computeWindow({
+	label: "AAL221 -> BAYLR",
+	gateDistanceNm: GATE_A_NM,
+	maneuverDurationS: MANEUVER_A_DURATION_S,
+	groundspeedKt: AAL221.groundspeedKt,
+})
+
+export const WINDOW_B: ManeuverWindow = computeWindow({
+	label: "SWA455 -> CARDL",
+	gateDistanceNm: GATE_B_NM,
+	maneuverDurationS: MANEUVER_B_DURATION_S,
+	groundspeedKt: SWA455.groundspeedKt,
+})
+
+export const WINDOWS: ReadonlyMap<string, ManeuverWindow> = new Map([
+	["A", WINDOW_A],
+	["B", WINDOW_B],
+])
+
+/** Narrowing candidates for A, most useful first — see narrowToSafe. */
+export function narrowingCandidatesForA(committedSeconds = 0): readonly PendingClearance[] {
+	return [5_000, 6_000, 7_000, 8_000].map((targetAltFt) => ({
+		...clearanceA(committedSeconds),
+		id: `A/descend-${targetAltFt}`,
+		command: { targetAltFt, verticalRateFpm: DESCENT_FPM },
+	}))
+}

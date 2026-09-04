@@ -13,7 +13,8 @@
     "regen:heading-golden": "tsx scripts/regen-heading-golden.ts",
     "verify:reflex-silent": "tsx scripts/verify-reflex-silent.ts",
     "verify:determinism": "tsx scripts/verify-determinism.ts",
-    "sim:headless": "tsx scripts/verify-determinism.ts"
+    "sim:headless": "tsx scripts/verify-determinism.ts",
+    "verify:theorem": "tsx scripts/verify-theorem.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",

@@ -18,13 +18,33 @@ JigJoy × daily.dev × Hyperskill *Systems of Concurrent Agents* hackathon.
 
 ## The claim
 
-A hazard existing only in the intersection of two simultaneously-pending clearances is undetectable
-by any sequential scheme **and** by validate-at-commit: validating clearance A against the world
-cannot see clearance B, because B has not been applied to the world yet. And the two cannot simply be
-serialized, because both aircraft are approaching the last point at which their maneuver is
-physically available — so committing A first closes B's window.
+> **Validate-at-commit does not fail because it cannot see. It fails because by the time it has
+> committed and looked, the other aircraft's window is shut.**
 
-That is a theorem, and it ships as a **passing test**, not a paragraph. (Phase 3.)
+Two clearances are individually safe and jointly unsafe. The hazard **is** visible to anything
+holding both as pending intent — that is exactly what the interlock does, and exactly what
+validate-at-commit does not. And the two cannot be serialized: a serialized system cannot reach its
+second decision before 12 400 ms (turn + 8.0 s single-channel readback + turn), by which time the
+other aircraft's manoeuvre window has closed. **Both orders fail.** If only one did, the hazard
+would be serializable and the theorem would be false.
+
+It ships as a **passing test**, not a paragraph: `npm run verify:theorem`, zero tokens, no API key.
+
+### The calibration, stated up front
+
+The two **gate distances** in the scenario are calibrated — they are chosen so both manoeuvre
+windows land inside the admissible band. That is a scenario parameter and this is us saying so
+before you find it.
+
+What is *not* calibrated is the band itself. It is derived from the controller-latency model
+(`src/domain/interlock/decision-latency.ts`) and contains no geometry at all: a window must exceed
+8998 ms for the concurrent arm to fit on every latency draw, and fall below 12 400 ms for the
+serialized arm to miss on every draw. `tests/theorem/theorem.test.ts` **computes** that band and
+asserts the gates lie strictly inside it, so changing the latency model fails the test and tells
+you to re-derive the gates rather than letting a stale calibration slide through.
+
+Each window is derived from real manoeuvre physics, not chosen: descending 5000 ft at 2000 fpm
+takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 
 ## Status
 
@@ -32,8 +52,8 @@ That is a theorem, and it ships as a **passing test**, not a paragraph. (Phase 3
 |---|---|---|
 | 0 | The spike — prove the marquee mechanism exists before designing around it | ✅ |
 | 1 | Substrate — close the gaps the runtime leaves | ✅ |
-| 2 | Deterministic world, zero tokens | ⬜ |
-| 3 | The interlock — **the theorem as a test** | ⬜ |
+| 2 | Deterministic world, zero tokens | ✅ |
+| 3 | The interlock — **the theorem as a test** | ✅ |
 | 4 | Live controllers, three vendors | ⬜ |
 
 ## Reproduce
@@ -43,10 +63,25 @@ and no credentials must still be able to reproduce the central claims.
 
 ```bash
 npm install
-npm run spike      # regenerates spike/RESULTS.md against the shipped package
-npm test           # 39 tests
+npm run spike               # regenerates spike/RESULTS.md against the shipped package
+npm test                    # 194 tests
+npm run verify:theorem      # THE THEOREM
+npm run verify:braid-2      # the scenario, measured by the shipped integrator
+npm run verify:reflex-silent# proves TCAS never sees the joint hazard
+npm run verify:determinism  # same seed twice, byte-identical + state hash
 npm run typecheck
 ```
+
+### Why TCAS does not save you
+
+If the collision-avoidance system resolved this encounter, the joint hazard would be something the
+safety net already handles and no architecture above it would matter. It does not: closest approach
+is **2.5361 NM against an RA DMOD of 0.55 NM — 4.6× clear**, and no RA or TA fires in any of the
+four cases over 380 s. The aircraft do cross co-altitude, so the *vertical* test would pass easily;
+an advisory needs both, and the range test never comes close.
+
+Stated rather than hidden: the TA margin is only 1.06×. A TA commands no manoeuvre, so even if
+geometry shifted enough to trigger one the encounter would still be unresolved.
 
 ## What we had to build, and why
 
