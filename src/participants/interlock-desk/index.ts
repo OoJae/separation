@@ -3,6 +3,8 @@ import type { ExecutableTransition, InferenceInput, InterceptionHandler } from "
 import type { AircraftState } from "../../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../../domain/airspace/encounter"
 import { evaluateJoint, narrowToSafe, type JointHazard } from "../../domain/interlock/joint-prober"
+import { COMMAND_LAG_S } from "../../domain/airspace/maneuver-window"
+import { secondsToTick } from "../../domain/airspace/units"
 import type { ManeuverWindow } from "../../domain/airspace/maneuver-window"
 import type { IntentRegistry } from "../../domain/interlock/intent-registry"
 import { WorldEvent } from "../../events/world-events"
@@ -285,6 +287,26 @@ export class InterlockDesk extends Participant {
 	 * clearanceId, since a model proposes by id and commits by id — hence the intent registry.
 	 * Structural reads throughout: payloads lose their prototype in transit (API-NOTES #12).
 	 */
+	/**
+	 * Stamp the instant a clearance is COMMITTED, which is now — this is the commit interception.
+	 *
+	 * The intent registry announces a proposal with placeholder ticks, because a proposal has no
+	 * commit time yet. Letting those zeroes through meant every live clearance claimed it had been
+	 * committed at scenario start and took effect instantly, with no command lag at all — so the
+	 * joint geometry was flown against a manoeuvre no aircraft could fly. A clearance committed now
+	 * moves metal at now + COMMAND_LAG_S, and evaluateJoint tests its window against that same
+	 * committedTick, so there is exactly one clock.
+	 */
+	private dated(clearance: PendingClearance, callerSuppliedTicks: boolean): PendingClearance {
+		if (callerSuppliedTicks) return clearance
+		const committedTick = secondsToTick(this.deps.clock.nowMs() / 1000)
+		return {
+			...clearance,
+			committedTick,
+			effectiveTick: committedTick + secondsToTick(COMMAND_LAG_S),
+		}
+	}
+
 	private parse(call: FunctionCallItem): PendingClearance | "malformed" | "unresolved" {
 		let args: {
 			clearanceId?: string
@@ -301,14 +323,15 @@ export class InterlockDesk extends Participant {
 		if (typeof args.clearanceId !== "string") return "malformed"
 
 		if (typeof args.callsign === "string" && args.command !== undefined) {
-			return {
+			return this.dated({
 				id: args.clearanceId,
 				callsign: args.callsign,
 				command: args.command,
 				committedTick: args.committedTick ?? 0,
 				effectiveTick: args.effectiveTick ?? 0,
-			}
+			}, args.committedTick !== undefined)
 		}
-		return this.deps.intents.resolve(args.clearanceId) ?? "unresolved"
+		const resolved = this.deps.intents.resolve(args.clearanceId)
+		return resolved === undefined || resolved === null ? "unresolved" : this.dated(resolved, false)
 	}
 }

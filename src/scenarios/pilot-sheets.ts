@@ -1,3 +1,5 @@
+import type { AircraftState } from "../domain/airspace/aircraft-state"
+import { degreesToMdeg } from "../domain/airspace/units"
 import type { PilotSheet } from "../domain/disclosure/pilot-sheet"
 
 const KG = 1_000_000 // milligrams per kilogram
@@ -75,6 +77,34 @@ export const PILOT_SHEETS: readonly PilotSheet[] = [
 export const UAL231_TRUE_FUEL_MG = 1_450 * KG
 export const UNRECONCILABLE_CALLSIGN = "UAL231"
 export const MEDICAL_CALLSIGN = "AAL77"
+
+/**
+ * AAL77 as an actual aircraft — which it never was.
+ *
+ * `verify:social-information` asks APPROACH to vector AAL77, but the world it was handed contained
+ * only the BRAID-2 pair, so the controller was being told to vector an aircraft that was not on its
+ * scope and for which the prober could offer no options. The model said so out loud once the
+ * geometry shifted ("AAL77: Not appearing in the current traffic picture"), which is how this was
+ * found. Any earlier run that "spent window to query the pilot" was reasoning about a phantom.
+ *
+ * Positioned as an arrival inbound from the northwest, clear of the BRAID-2 pair (5.4 NM and
+ * 1000 ft from AAL221, so no separation issue and no third party to the joint hazard) but close
+ * enough that the choice actually COSTS something: the wide vector holds 4.17 NM of margin, the
+ * shortest track only 3.23 NM. Both are legal. That spread is the whole point — a first placement
+ * further out left every option safe by 6-10 NM, which makes asking the pilot pointless and tests
+ * nothing. The trade-off is the scenario, per the sheet comment above: the geometrically safest
+ * option is the wide vector; the right one is the shortest path, and only the pilot knows that.
+ * Used ONLY by the social-information scenario; BRAID-2's INITIAL is untouched.
+ */
+export const MEDICAL_AIRCRAFT: AircraftState = {
+	callsign: MEDICAL_CALLSIGN,
+	x: -12.0,
+	y: 5.0,
+	altFt: 8_000,
+	headingMdeg: degreesToMdeg(120),
+	groundspeedKt: 250,
+	verticalSpeedFpm: 0,
+}
 
 export function sheetFor(callsign: string): PilotSheet | undefined {
 	return PILOT_SHEETS.find((s) => s.callsign === callsign)

@@ -55,34 +55,48 @@ rewritten call, so it can reason about having been narrowed.
 
 `npm run demo:live` replays this from a committed cache with **zero API calls and no key**.
 
-### Geometry loses to socially-obtained information
+### Geometry loses to socially-obtained information — and the live model declined to ask
 
-The sharpest answer to *"what did the language models decide that a solver could not?"* Live:
+The sharpest answer to *"what did the language models decide that a solver could not?"* is that the
+decisive fact is private and must be **asked for**. The mechanism works and is proven in
+`tests/pilot/social-information.test.ts`: the controller queries, the pilot answers from its sheet,
+and the constraint lands in the controller's own context — a fact that exists nowhere in the world,
+no snapshot, and no `FeasibleSet`.
+
+**What the live model actually did is another matter, and we report it rather than stage around it.**
 
 ```
-  widest margin : AAL221/turn-right-30    7.69 NM, 3.5 extra track miles
-  shortest track: AAL221/descend-4000     4.60 NM, 0.0 extra track miles
+  widest margin : AAL77/turn-right-30    4.17 NM, 3.5 extra track miles
+  shortest track: AAL77/descend-4000     3.23 NM, 0.0 extra track miles
   ordering      : lexicographic-by-optionId (semantically meaningless)
 
   Both are separation-safe. Geometry cannot choose between them.
 
-APPROACH -> assess_traffic -> probe_feasible -> query_pilot
-                                                     |  parked, waiting
-AAL77   -> report_constraint  "a passenger with a deteriorating medical
-                               condition, requesting the shortest track"
-APPROACH -> probe_feasible -> assess_traffic -> propose_clearance
+APPROACH -> assess_traffic -> probe_feasible -> propose_clearance -> commit_clearance
+                                        (never asked; AAL77's medical never entered the decision)
 ```
 
-The controller **spent part of its manoeuvre window** to ask, then **re-probed and re-assessed**
-before proposing. The fact that decided the answer exists only in that pilot's closure — not in
-the world, not in a snapshot, not in any `FeasibleSet`.
+Told explicitly that it *may* `query_pilot` and what that costs, the model committed a clearance
+from geometry alone. It took the wide vector — which is exactly the option the scenario is built to
+punish, since AAL77 is carrying a deteriorating passenger and needs the shortest track. The model
+paid nothing for information and got it wrong.
 
-**Asking is not free.** `query_pilot`'s `invoke()` awaits the reply, and `FunctionCallState.run`
-awaits the tool, so the controller's whole turn is parked for the length of a pilot's turn — ~13 s
-against a ~44 s window. A controller must judge whether it can afford to find out, and the value of
-the unknown is exactly what it does not know. No solver resolves that.
+That is a more honest result than the one this section used to claim, and the correction is worth
+stating plainly: **the earlier "the controller asked" evidence was not real.**
+`verify:social-information` instructed APPROACH to vector AAL77 while handing it a world containing
+only AAL221 and SWA455 — AAL77 had a pilot sheet but had never been given an aircraft state
+anywhere in the repo — and it probed feasibility for `AAL221` while the instruction named AAL77.
+The controller had been asking about a phantom. Fixing the scenario (giving AAL77 a position, and
+probing the aircraft actually under decision) removed the confusion, and with it the query.
 
-`npm run verify:social-information` replays it from the committed cache.
+**Asking is not free**, and that is why the choice is real. `query_pilot`'s `invoke()` awaits the
+reply, and `FunctionCallState.run` awaits the tool, so the controller's whole turn is parked for the
+length of a pilot's turn — ~13 s against a ~44 s window. A controller must judge whether it can
+afford to find out, and the value of the unknown is exactly what it does not know. No solver
+resolves that; this model resolved it by not paying.
+
+`npm run verify:social-information` replays the whole thing from the committed cache and **exits
+non-zero**, because the controller did not ask. That is the finding, not a broken build.
 
 ### RETRACE found a real bug in this repo
 
@@ -277,7 +291,7 @@ re-derived from the measurement:
 | one round | 1100–4499 ms | **11 283–17 291 ms** |
 | admissible band | (8998, 12 400) ms — 3402 wide | **(34 580, 53 132) ms — 18 552 wide** |
 | gate A range | 0.24 NM | **1.29 NM** |
-| serialized miss margin | 1744 / 2600 ms | **8780 / 8772 ms** |
+| serialized miss margin | 1744 / 2600 ms | **9446 / 8770 ms** |
 
 The correction made the result **more** robust, not less. A serialized decision pays two full turns
 plus the radio, so a slower model widens the gap between "one turn" and "two turns plus 8 s of
@@ -285,7 +299,37 @@ readback". The band is 5.5× wider, gate placement is 5.5× more tolerant, and b
 orders now miss by ~8.8 seconds instead of ~2.
 
 Each window is derived from real manoeuvre physics, not chosen: descending 5000 ft at 2000 fpm
-takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
+takes 150 s, and turning 12° then establishing 0.60 NM of offset takes 45.56 s.
+
+### The tripwire fired a second time — and that one was our own bug
+
+An adversarial audit found that `evaluateJoint` was running the theorem's two halves on **different
+clocks**: it spent the evaluation instant against the manoeuvre windows, then flew the geometry from
+clearances baked at t=0 regardless of what commit time was being modelled. Fixing it exposed
+something worse than the bug.
+
+A joint hazard is not a static property of a scenario — **it has a lifetime.** BRAID-2's hazard
+exists because SWA455's turn steals lateral separation while AAL221's descent steals the vertical.
+Commit both later and the turn has less distance left to run, so the aircraft pass further apart,
+and past some instant they pass *legally*. There is then nothing for the interlock to catch.
+
+That lifetime was **27.5 s**, while the measured latency puts concurrent commits at **22.6–34.6 s**.
+The hazard was alive for the fast half of the range and dead for the slow half — a coin flip, not a
+theorem. The cause was the same re-derivation as above not going far enough: Phase 4 correctly moved
+the gates and the band when latency was measured, but nobody re-tuned the *encounter*, and the
+robustness grid still ran `[0 … 9.6] s` — **3.6× narrower** than the range the system actually
+operates in, so nothing failed.
+
+The geometry was re-calibrated (turn 20°→12°, SWA455 moved in, gate B re-derived 6.2→7.1 NM) and the
+hazard now lives **53.9 s**, covering the whole concurrent range with 19.3 s to spare — and it is
+still alive at the serialized instant, so the serialized arm demonstrably fails on the *window*
+alone rather than because the hazard evaporated.
+
+`tests/theorem/hazard-lifetime.test.ts` now **computes** that lifetime by bisection over the shipped
+integrator and asserts it strictly contains the decision range. It fails on the old calibration
+(27.1 s). The commit-time grids were widened to span the real range. This is the tripwire the repo
+should have had in Phase 4, and its absence is why a stale calibration certified a theorem it no
+longer backed.
 
 ## Status
 
@@ -321,7 +365,7 @@ npm run typecheck
 
 If the collision-avoidance system resolved this encounter, the joint hazard would be something the
 safety net already handles and no architecture above it would matter. It does not: closest approach
-is **2.5361 NM against an RA DMOD of 0.55 NM — 4.6× clear**, and no RA or TA fires in any of the
+is **2.3511 NM against an RA DMOD of 0.55 NM — 4.3× clear**, and no RA or TA fires in any of the
 four cases over 380 s. The aircraft do cross co-altitude, so the *vertical* test would pass easily;
 an advisory needs both, and the range test never comes close.
 

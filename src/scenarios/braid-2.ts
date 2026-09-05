@@ -1,6 +1,6 @@
 import type { AircraftState } from "../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../domain/airspace/encounter"
-import { computeWindow, levelChangeDurationS, turnAndEstablishDurationS, type ManeuverWindow } from "../domain/airspace/maneuver-window"
+import { COMMAND_LAG_S, computeWindow, levelChangeDurationS, turnAndEstablishDurationS, type ManeuverWindow } from "../domain/airspace/maneuver-window"
 import { eastOf } from "../domain/airspace/heading-table"
 import { degreesToMdeg, secondsToTick } from "../domain/airspace/units"
 
@@ -17,13 +17,14 @@ import { degreesToMdeg, secondsToTick } from "../domain/airspace/units"
  * apart, so there is no conflict.
  *
  *   - APPROACH wants AAL221 down for the arrival:  "descend and maintain 4000"   (vertical)
- *   - FLOW wants SWA455 turned for the metering fix: "turn left heading 340"     (lateral)
+ *   - FLOW wants SWA455 turned for the metering fix: "turn left heading 348"     (lateral)
  *
  * Each controller is looking at a different axis, and neither can tell from its own axis that
  * the other is about to remove the protection it is relying on.
  */
 
-export const COMMAND_LAG_S = 13.0 // T_RT 8.0 (transmit + readback) + T_PILOT 5.0
+/** Re-exported, not redeclared: the lag is a physical constant of the R/T loop, not a scenario knob. */
+export { COMMAND_LAG_S }
 export const HORIZON_S = 380
 
 export const AAL221: AircraftState = {
@@ -38,7 +39,7 @@ export const AAL221: AircraftState = {
 
 export const SWA455: AircraftState = {
 	callsign: "SWA455",
-	x: 2.5,
+	x: 0.9,
 	y: -6.0,
 	altFt: 6_000,
 	headingMdeg: degreesToMdeg(0), // north
@@ -50,6 +51,19 @@ export const INITIAL: readonly [AircraftState, AircraftState] = [AAL221, SWA455]
 
 /** Descent rate once a vertical clearance is live. */
 export const DESCENT_FPM = 2_000
+
+export const REQUIRED_OFFSET_NM = 0.6
+/**
+ * SHALLOWED from 20 degrees when the two-clock defect was fixed.
+ *
+ * A steeper turn displaces SWA455 faster, so it also loses that displacement faster as the commit
+ * is delayed — which is what gave the joint hazard a 27.5 s life against a concurrent commit range
+ * reaching 34.58 s. Twelve degrees costs displacement per second and buys hazard lifetime; paired
+ * with the closer start above it holds the hazard alive for 53.5 s. See hazard-lifetime.test.ts,
+ * which computes that number rather than trusting this comment.
+ */
+export const TURN_DEGREES = 12
+export const TURN_RATE_DEG_PER_S = 3
 
 export function clearanceA(committedSeconds = 0): PendingClearance {
 	return {
@@ -65,7 +79,7 @@ export function clearanceB(committedSeconds = 0): PendingClearance {
 	return {
 		id: "B",
 		callsign: "SWA455",
-		command: { targetHeadingMdeg: degreesToMdeg(340) },
+		command: { targetHeadingMdeg: degreesToMdeg(360 - TURN_DEGREES) },
 		committedTick: secondsToTick(committedSeconds),
 		effectiveTick: secondsToTick(committedSeconds + COMMAND_LAG_S),
 	}
@@ -100,13 +114,11 @@ export const INITIAL_ARMED = INITIAL
 export const GATE_A_NM = 14.4
 /**
  * CARDL — SWA455 must be established with 0.60 NM of in-trail offset by here.
- * RE-DERIVED likewise (was 3.86 NM). Admissible range [5.5215, 6.8099] NM.
+ * RE-DERIVED likewise (was 3.86 NM, then 6.2 NM). Moved again when the two-clock defect was
+ * fixed: the turn shallowed from 20 to 12 degrees, which lengthens the manoeuvre, so the gate has
+ * to move out to keep W_B inside the admissible band. W_B is now 43684 ms, near the band's centre.
  */
-export const GATE_B_NM = 6.2
-
-export const REQUIRED_OFFSET_NM = 0.6
-export const TURN_DEGREES = 20
-export const TURN_RATE_DEG_PER_S = 3
+export const GATE_B_NM = 7.1
 
 /** Descending 5000 ft at 2000 fpm takes 150 s, and the gate does not move while it happens. */
 export const MANEUVER_A_DURATION_S = levelChangeDurationS(9_000, 4_000, DESCENT_FPM)

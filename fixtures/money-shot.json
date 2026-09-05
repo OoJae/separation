@@ -2,7 +2,7 @@
  "meta": {
   "scenario": "braid-2 money shot",
   "arm": "full",
-  "generatedAtTSim": 1788635760282.24,
+  "generatedAtTSim": 1788640661011.4158,
   "frames": 0,
   "turns": 2,
   "events": 63
@@ -12,456 +12,456 @@
   {
    "participant": "APPROACH",
    "turnId": "t1:APPROACH",
-   "openedMs": 1788635757516.5203,
-   "closedMs": 1788635760102.7842,
+   "openedMs": 1788640658245.575,
+   "closedMs": 1788640660826.2178,
    "reason": "completed"
   },
   {
    "participant": "FLOW",
    "turnId": "t2:FLOW",
-   "openedMs": 1788635757517.3596,
-   "closedMs": 1788635760102.86,
+   "openedMs": 1788640658246.4385,
+   "closedMs": 1788640660826.2722,
    "reason": "completed"
   }
  ],
  "events": [
   {
    "seq": 1,
-   "tSim": 1788635757515.6335,
+   "tSim": 1788640658244.5244,
    "type": "participant.joined",
-   "producer": "<unregistered:f8aec518>",
+   "producer": "<unregistered:59e3c3d9>",
    "summary": ""
   },
   {
    "seq": 2,
-   "tSim": 1788635757515.7952,
+   "tSim": 1788640658244.6865,
    "type": "participant.joined",
    "producer": "<unregistered:standing>",
    "summary": ""
   },
   {
    "seq": 3,
-   "tSim": 1788635757515.8164,
+   "tSim": 1788640658244.708,
    "type": "participant.joined",
    "producer": "<unregistered:interloc>",
    "summary": ""
   },
   {
    "seq": 4,
-   "tSim": 1788635757515.8386,
+   "tSim": 1788640658244.7268,
    "type": "participant.joined",
-   "producer": "<unregistered:00c0036a>",
+   "producer": "<unregistered:2c201ef0>",
    "summary": ""
   },
   {
    "seq": 5,
-   "tSim": 1788635757515.8733,
+   "tSim": 1788640658244.7612,
    "type": "participant.joined",
-   "producer": "<unregistered:94594223>",
+   "producer": "<unregistered:6c23ae33>",
    "summary": ""
   },
   {
    "seq": 1,
-   "tSim": 1788635757516.2747,
+   "tSim": 1788640658245.2832,
    "type": "standing.granted",
    "producer": "standing-broker",
    "summary": "APPROACH holds AAL221/runway-sequence"
   },
   {
    "seq": 2,
-   "tSim": 1788635757516.3372,
+   "tSim": 1788640658245.3577,
    "type": "standing.granted",
    "producer": "standing-broker",
    "summary": "FLOW holds AAL221/metering-interval"
   },
   {
    "seq": 3,
-   "tSim": 1788635757516.5203,
+   "tSim": 1788640658245.575,
    "type": "turn.started",
    "producer": "APPROACH",
    "summary": "t1:APPROACH"
   },
   {
    "seq": 9,
-   "tSim": 1788635757517.265,
+   "tSim": 1788640658246.3472,
    "type": "message_received.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 10,
-   "tSim": 1788635757517.3254,
+   "tSim": 1788640658246.4067,
    "type": "message_received.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 4,
-   "tSim": 1788635757517.3596,
+   "tSim": 1788640658246.4385,
    "type": "turn.started",
    "producer": "FLOW",
    "summary": "t2:FLOW"
   },
   {
    "seq": 12,
-   "tSim": 1788635757517.4402,
+   "tSim": 1788640658246.5173,
    "type": "message_received.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 13,
-   "tSim": 1788635757517.4497,
+   "tSim": 1788640658246.5264,
    "type": "message_received.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 14,
-   "tSim": 1788635757517.749,
+   "tSim": 1788640658246.833,
    "type": "inference.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 15,
-   "tSim": 1788635757518.072,
+   "tSim": 1788640658247.1458,
    "type": "inference.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 16,
-   "tSim": 1788635757518.1663,
+   "tSim": 1788640658247.2246,
    "type": "inference.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 17,
-   "tSim": 1788635757518.1748,
+   "tSim": 1788640658247.2332,
    "type": "inference.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 18,
-   "tSim": 1788635757518.2693,
+   "tSim": 1788640658247.3403,
    "type": "function_call.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 19,
-   "tSim": 1788635757518.3887,
+   "tSim": 1788640658247.4634,
    "type": "function_call.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 20,
-   "tSim": 1788635757518.4487,
+   "tSim": 1788640658247.5256,
    "type": "function_call.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 21,
-   "tSim": 1788635757518.4575,
+   "tSim": 1788640658247.534,
    "type": "function_call.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 22,
-   "tSim": 1788635757518.4983,
+   "tSim": 1788640658247.5745,
    "type": "inference.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 23,
-   "tSim": 1788635757518.5376,
+   "tSim": 1788640658247.6108,
    "type": "inference.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 24,
-   "tSim": 1788635757518.568,
+   "tSim": 1788640658247.6404,
    "type": "inference.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 25,
-   "tSim": 1788635757518.5713,
+   "tSim": 1788640658247.6433,
    "type": "inference.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 26,
-   "tSim": 1788635757518.5786,
+   "tSim": 1788640658247.6501,
    "type": "function_call.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 27,
-   "tSim": 1788635757557.5312,
+   "tSim": 1788640658284.4883,
    "type": "function_call.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 28,
-   "tSim": 1788635757580.4158,
+   "tSim": 1788640658308.1511,
    "type": "function_call.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 29,
-   "tSim": 1788635757580.429,
+   "tSim": 1788640658308.1655,
    "type": "function_call.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 30,
-   "tSim": 1788635757580.4504,
+   "tSim": 1788640658308.192,
    "type": "inference.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 31,
-   "tSim": 1788635757580.5632,
+   "tSim": 1788640658308.3052,
    "type": "inference.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 32,
-   "tSim": 1788635757580.6394,
+   "tSim": 1788640658308.3796,
    "type": "inference.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 33,
-   "tSim": 1788635757580.6438,
+   "tSim": 1788640658308.383,
    "type": "inference.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 34,
-   "tSim": 1788635757580.6587,
+   "tSim": 1788640658308.3984,
    "type": "function_call.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 5,
-   "tSim": 1788635757580.8394,
+   "tSim": 1788640658308.618,
    "type": "intent.forming",
    "producer": "APPROACH",
-   "summary": "APPROACH → AAL221 (AAL221/descend-5000)"
+   "summary": "APPROACH → AAL221 (AAL221-descent-5000)"
   },
   {
    "seq": 6,
-   "tSim": 1788635757580.9836,
+   "tSim": 1788640658308.7642,
    "type": "objection.raised",
    "producer": "FLOW",
    "summary": "FLOW objects to APPROACH: that descent crosses my metering block at CARDL"
   },
   {
    "seq": 37,
-   "tSim": 1788635757581.0342,
+   "tSim": 1788640658308.8152,
    "type": "function_call.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 7,
-   "tSim": 1788635757581.0686,
+   "tSim": 1788640658308.854,
    "type": "intent.forming",
    "producer": "FLOW",
-   "summary": "FLOW → AAL221 (AAL221-descend-5000-meter)"
+   "summary": "FLOW → AAL221 (AAL221-descend-7000-meter)"
   },
   {
    "seq": 39,
-   "tSim": 1788635757581.1047,
+   "tSim": 1788640658308.8926,
    "type": "function_call.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 40,
-   "tSim": 1788635757581.1091,
+   "tSim": 1788640658308.897,
    "type": "function_call.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 41,
-   "tSim": 1788635757581.1196,
+   "tSim": 1788640658308.9092,
    "type": "inference.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 42,
-   "tSim": 1788635757581.2002,
+   "tSim": 1788640658308.9868,
    "type": "inference.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 43,
-   "tSim": 1788635757581.2695,
+   "tSim": 1788640658309.0574,
    "type": "inference.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 44,
-   "tSim": 1788635757581.2722,
+   "tSim": 1788640658309.06,
    "type": "inference.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 45,
-   "tSim": 1788635757581.29,
+   "tSim": 1788640658309.0823,
    "type": "interception.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 8,
-   "tSim": 1788635757581.4097,
+   "tSim": 1788640658309.2283,
    "type": "world.command.accepted",
    "producer": "interlock-desk",
    "summary": "turn-1"
   },
   {
    "seq": 47,
-   "tSim": 1788635757581.5022,
+   "tSim": 1788640658309.3257,
    "type": "interception.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 9,
-   "tSim": 1788635757581.5127,
+   "tSim": 1788640658309.3394,
    "type": "world.command.accepted",
    "producer": "interlock-desk",
    "summary": "turn-2"
   },
   {
    "seq": 10,
-   "tSim": 1788635760101.5986,
+   "tSim": 1788640660825.3127,
    "type": "world.command.accepted",
    "producer": "interlock-desk",
    "summary": "turn-1"
   },
   {
    "seq": 50,
-   "tSim": 1788635760101.862,
+   "tSim": 1788640660825.5002,
    "type": "interception.finished",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 51,
-   "tSim": 1788635760101.872,
+   "tSim": 1788640660825.511,
    "type": "function_call.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 52,
-   "tSim": 1788635760102.077,
+   "tSim": 1788640660825.6724,
    "type": "interception.finished",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 53,
-   "tSim": 1788635760102.081,
+   "tSim": 1788640660825.6763,
    "type": "function_call.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 54,
-   "tSim": 1788635760102.1382,
+   "tSim": 1788640660825.7195,
    "type": "function_call.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 55,
-   "tSim": 1788635760102.1465,
+   "tSim": 1788640660825.7288,
    "type": "function_call.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 56,
-   "tSim": 1788635760102.1675,
+   "tSim": 1788640660825.7454,
    "type": "inference.started",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 57,
-   "tSim": 1788635760102.3596,
+   "tSim": 1788640660825.869,
    "type": "inference.started",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 58,
-   "tSim": 1788635760102.4734,
+   "tSim": 1788640660825.954,
    "type": "inference.completed",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 59,
-   "tSim": 1788635760102.4797,
+   "tSim": 1788640660825.9644,
    "type": "inference.completed",
    "producer": "FLOW",
    "summary": ""
   },
   {
    "seq": 11,
-   "tSim": 1788635760102.7842,
+   "tSim": 1788640660826.2178,
    "type": "turn.ended",
    "producer": "APPROACH",
    "summary": "t1:APPROACH"
   },
   {
    "seq": 61,
-   "tSim": 1788635760102.8044,
+   "tSim": 1788640660826.237,
    "type": "model.answer",
    "producer": "APPROACH",
    "summary": ""
   },
   {
    "seq": 12,
-   "tSim": 1788635760102.86,
+   "tSim": 1788640660826.2722,
    "type": "turn.ended",
    "producer": "FLOW",
    "summary": "t2:FLOW"
   },
   {
    "seq": 63,
-   "tSim": 1788635760102.8726,
+   "tSim": 1788640660826.2795,
    "type": "model.answer",
    "producer": "FLOW",
    "summary": ""
@@ -469,34 +469,34 @@
  ],
  "beats": [
   {
-   "tSim": 1788635757580.8394,
+   "tSim": 1788640658308.618,
    "kind": "intent",
    "text": "APPROACH is forming a clearance for AAL221"
   },
   {
-   "tSim": 1788635757580.9836,
+   "tSim": 1788640658308.7642,
    "kind": "objection",
    "text": "FLOW objects to APPROACH — that descent crosses my metering block at CARDL"
   },
   {
-   "tSim": 1788635757581.0686,
+   "tSim": 1788640658308.854,
    "kind": "intent",
    "text": "FLOW is forming a clearance for AAL221"
   },
   {
-   "tSim": 1788635757581.4097,
+   "tSim": 1788640658309.2283,
    "kind": "held",
-   "text": "the desk is holding AAL221/descend-5000 (1 in the airlock)"
+   "text": "the desk is holding AAL221-descent-5000 (1 in the airlock)"
   },
   {
-   "tSim": 1788635757581.5127,
+   "tSim": 1788640658309.3394,
    "kind": "held",
-   "text": "the desk is holding AAL221-descend-5000-meter (2 in the airlock)"
+   "text": "the desk is holding AAL221-descend-7000-meter (2 in the airlock)"
   },
   {
-   "tSim": 1788635760101.5986,
+   "tSim": 1788640660825.3127,
    "kind": "narrowed",
-   "text": "the desk narrowed AAL221/descend-5000 → AAL221/descend-5000/peer-7000"
+   "text": "the desk narrowed AAL221-descent-5000 → AAL221-descent-5000/peer-7000"
   }
  ]
 }

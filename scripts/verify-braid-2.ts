@@ -46,7 +46,7 @@ let serializationHolds = false
 // ─────────────────────────────────────────────────────────────────────────────────────────
 import type { AircraftState } from "../src/domain/airspace/aircraft-state"
 import { AAL221_ARMED, SWA455, COMMAND_LAG_S } from "../src/scenarios/braid-2"
-import { degreesToMdeg, secondsToTick } from "../src/domain/airspace/units"
+import { degreesToMdeg, secondsToTick, tickToSeconds } from "../src/domain/airspace/units"
 
 const hazard = (init: readonly [AircraftState, AircraftState], cs: Parameters<typeof flyEncounter>[1]) =>
 	flyEncounter(init, cs, HORIZON_S).loss !== null
@@ -56,7 +56,8 @@ console.log("ROBUSTNESS\n")
 
 // 1. Commit time — the only thing controller latency actually varies.
 {
-	const grid = [0, 1.2, 2.4, 3.6, 4.8, 6.0, 7.2, 8.4, 9.6]
+	// Spans the REAL decision range (22.6-34.6 s measured), not the assumed one it used to.
+	const grid = [0, 5, 10, 15, 20, 25, 30, 34.58, 40]
 	let hit = 0
 	let minH = Infinity, maxH = -Infinity, minLoss = Infinity, maxLoss = -Infinity
 	for (const ta of grid) for (const tb of grid) {
@@ -67,7 +68,7 @@ console.log("ROBUSTNESS\n")
 			minLoss = Math.min(minLoss, r.lossSeconds); maxLoss = Math.max(maxLoss, r.lossSeconds)
 		}
 	}
-	console.log(`  1. commit-time grid 9x9 over [0, 9.6]s : ${hit}/81 produce the joint hazard`)
+	console.log(`  1. commit-time grid 9x9 over [${grid[0]}, ${grid[grid.length - 1]}]s : ${hit}/81 produce the joint hazard`)
 	console.log(`     min horizontal ${minH.toFixed(4)}-${maxH.toFixed(4)} NM, loss ${minLoss.toFixed(2)}-${maxLoss.toFixed(2)}s`)
 }
 
@@ -120,7 +121,11 @@ console.log("ROBUSTNESS\n")
 	// never fail and contradicted verify:theorem by 4.5x on adjacent README lines.
 	const band = admissibleBandMs()
 	const wA = WINDOW_A.windowMs, wB = WINDOW_B.windowMs
-	const missA = band.upperMs - wA, missB = band.upperMs - wB
+	// Commit instants are integer 10 ms ticks, so the serialized commit lands on the tick at or
+	// before band.upperMs. Quantising here is what makes this agree to the millisecond with
+	// verify:theorem, which goes through real clearances rather than raw window arithmetic.
+	const committedMs = tickToSeconds(secondsToTick(band.upperMs / 1000)) * 1000
+	const missA = committedMs - wA, missB = committedMs - wB
 	console.log(`\n  4. windows: W_A=${(wA / 1000).toFixed(2)}s  W_B=${(wB / 1000).toFixed(2)}s`)
 	console.log(`     concurrent commit  <= ${band.lowerMs}ms  -> A ${band.lowerMs <= wA ? "makes it" : "MISSES"}, B ${band.lowerMs <= wB ? "makes it" : "MISSES"}`)
 	console.log(`     serialized commit  >= ${band.upperMs}ms  -> A MISSES by ${missA.toFixed(0)}ms, B MISSES by ${missB.toFixed(0)}ms`)

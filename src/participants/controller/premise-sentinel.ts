@@ -1,6 +1,8 @@
 import { ModelMessageItem, Participant } from "@mozaik-ai/core"
 import type { ExecutableTransition, FunctionCallItem, InterceptionHandler } from "@mozaik-ai/core"
 import type { AircraftState } from "../../domain/airspace/aircraft-state"
+import { COMMAND_LAG_S } from "../../domain/airspace/maneuver-window"
+import { secondsToTick } from "../../domain/airspace/units"
 import { flyEncounter } from "../../domain/airspace/encounter"
 import { LATERAL_MINIMUM_NM } from "../../domain/airspace/separation-standard"
 import { EventType } from "../../events/event-types"
@@ -82,9 +84,12 @@ export class PremiseSentinel extends Participant {
 				let worstMargin = Number.POSITIVE_INFINITY
 				for (const other of sentinel.deps.world()) {
 					if (other.callsign === premise.callsign) continue
+					// The world here IS now, so the clearance is committed at relative tick 0 — but it
+					// does not move metal until the command lag has elapsed. Stamping effectiveTick 0
+					// flew a clearance that took effect instantly, which no clearance ever does.
 					const r = flyEncounter([subject, other], [{
 						id: premise.clearanceId, callsign: premise.callsign, command: premise.command,
-						committedTick: 0, effectiveTick: 0,
+						committedTick: 0, effectiveTick: secondsToTick(COMMAND_LAG_S),
 					}], sentinel.deps.horizonSec)
 					if (r.loss !== null) worstMargin = Math.min(worstMargin, r.minHorizontalNm - LATERAL_MINIMUM_NM)
 				}

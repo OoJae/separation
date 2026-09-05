@@ -58,11 +58,11 @@ describe("the reflex layer stays silent through BRAID-2", () => {
 	 * WHICH test does the work, and by how much. Being precise here matters, because the two
 	 * margins are very different and only one of them is comfortable.
 	 */
-	it("is the RANGE test that keeps it silent — by 4.6x — not the vertical one", () => {
+	it("is the RANGE test that keeps it silent — by 4.3x — not the vertical one", () => {
 		const r = flyWithTcas([clearanceA(), clearanceB()])
-		expect(r.minRangeNm).toBeCloseTo(2.5361, 4)
-		expect(r.minRangeNm / r.row.raDmodNm).toBeGreaterThan(4.5)
-		expect(r.bestRaTau / r.row.raTauS).toBeGreaterThan(1.7)
+		expect(r.minRangeNm).toBeCloseTo(2.3511, 4)
+		expect(r.minRangeNm / r.row.raDmodNm).toBeGreaterThan(4.2)
+		expect(r.bestRaTau / r.row.raTauS).toBeGreaterThan(1.65)
 	})
 
 	it("the vertical test would PASS — the aircraft cross co-altitude — and it never matters", () => {
@@ -74,16 +74,19 @@ describe("the reflex layer stays silent through BRAID-2", () => {
 	})
 
 	/**
-	 * Stated rather than hidden: the TA margin is thin. A TA is advisory only — it commands no
-	 * manoeuvre — so even if the geometry shifted enough to trigger one, the encounter would
-	 * still be unresolved and the result would stand. The RA margin is what protects the thesis,
-	 * and that one is comfortable.
+	 * Stated rather than hidden: the TA margin is thin, and the two-clock recalibration made it
+	 * thinner — 6% before, 3% now. A TA is advisory only: it commands no manoeuvre, so even if the
+	 * geometry shifted enough to trigger one, the encounter would still be unresolved and the
+	 * result would stand. The RA margin is what protects the thesis, and that one is comfortable
+	 * at 4.3x. This trade was taken deliberately: the alternative calibrations that kept a 6% TA
+	 * margin all had the joint hazard expiring BEFORE the slowest concurrent commit, which is a
+	 * far worse defect than an advisory that no one has to act on.
 	 */
-	it("has only a 6% margin on the TA threshold, which is honest and does not matter", () => {
+	it("has only a 3% margin on the TA threshold, which is honest and does not matter", () => {
 		const r = flyWithTcas([clearanceA(), clearanceB()])
 		const taMargin = r.bestTaTau / r.row.taTauS
 		expect(taMargin).toBeGreaterThan(1.0)
-		expect(taMargin).toBeLessThan(1.2) // thin, and we say so
+		expect(taMargin).toBeLessThan(1.1) // thinner since the recalibration, and we say so
 	})
 })
 

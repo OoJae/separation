@@ -23,7 +23,7 @@ describe("BRAID-2", () => {
 	describe("the four cases", () => {
 		it("baseline: 3000 ft apart, no breach on either axis", () => {
 			const r = fly([])
-			expect(r.minHorizontalNm).toBeCloseTo(4.5962, 4)
+			expect(r.minHorizontalNm).toBeCloseTo(3.4648, 4)
 			expect(r.verticalAtMinFt).toBe(3_000)
 			expect(r.lateralBreach).toBeNull()
 			expect(r.verticalBreach).toBeNull()
@@ -34,7 +34,7 @@ describe("BRAID-2", () => {
 			const r = fly([clearanceA()])
 			expect(r.verticalBreach).not.toBeNull()          // vertical protection gone
 			expect(r.lateralBreach).toBeNull()               // lateral still holds
-			expect(r.minHorizontalNm).toBeCloseTo(4.5962, 4) // A does not move the lateral axis
+			expect(r.minHorizontalNm).toBeCloseTo(3.4648, 4) // A does not move the lateral axis
 			expect(r.loss).toBeNull()
 		})
 
@@ -42,18 +42,18 @@ describe("BRAID-2", () => {
 			const r = fly([clearanceB()])
 			expect(r.lateralBreach).not.toBeNull()           // lateral protection gone
 			expect(r.verticalBreach).toBeNull()              // vertical still holds
-			expect(r.minHorizontalNm).toBeCloseTo(2.5361, 4)
+			expect(r.minHorizontalNm).toBeCloseTo(2.3511, 4)
 			expect(r.verticalAtMinFt).toBe(3_000)            // B does not move the vertical axis
 			expect(r.loss).toBeNull()
 		})
 
 		it("[A,B] together loses separation — the intersection is non-empty", () => {
 			const r = fly([clearanceA(), clearanceB()])
-			expect(r.minHorizontalNm).toBeCloseTo(2.5361, 4)
+			expect(r.minHorizontalNm).toBeCloseTo(2.3511, 4)
 			expect(r.minHorizontalNm).toBeLessThan(LATERAL_MINIMUM_NM)
 			expect(r.verticalAtMinFt).toBeLessThan(VERTICAL_MINIMUM_FT)
 			expect(r.loss).not.toBeNull()
-			expect(r.lossSeconds).toBeCloseTo(24.4, 1)
+			expect(r.lossSeconds).toBeCloseTo(34.54, 1)
 		})
 	})
 
@@ -81,8 +81,17 @@ describe("BRAID-2", () => {
 	})
 
 	describe("robustness — a knife-edge construction would read as rigged", () => {
-		it("survives the whole commit-time grid: 81/81", () => {
-			const grid = [0, 1.2, 2.4, 3.6, 4.8, 6.0, 7.2, 8.4, 9.6]
+		/**
+		 * WIDENED after the two-clock fix, and this is the test that should have caught it.
+		 *
+		 * The old grid ran [0 .. 9.6] s, which was right for the ASSUMED latency of Phase 3 — a
+		 * controller turn was 2.2-9.0 s then. Phase 4 measured the real thing at 22.6-34.6 s and
+		 * re-derived the gates and the band, but nobody re-derived this grid, so it went on
+		 * certifying a commit range 3.6x narrower than the one the system actually operates in.
+		 * It now spans the real range, and then some.
+		 */
+		it("survives the whole commit-time grid across the REAL decision range: 81/81", () => {
+			const grid = [0, 5, 10, 15, 20, 25, 30, 34.58, 40]
 			let hazards = 0
 			for (const ta of grid) for (const tb of grid) {
 				if (fly([clearanceA(ta), clearanceB(tb)]).loss !== null) hazards++
@@ -90,24 +99,31 @@ describe("BRAID-2", () => {
 			expect(hazards).toBe(81)
 		})
 
-		it("survives initial-condition jitter, and no SINGLE clearance is ever hazardous there", () => {
+		/**
+		 * Run at BOTH ends of the concurrent commit range. Jitter at t=0 alone would say nothing
+		 * about the case that actually matters — the slowest pair of turns, which is where the
+		 * pre-fix calibration silently stopped producing a hazard at all.
+		 */
+		it("survives initial-condition jitter at both ends of the commit range, with no SINGLE clearance ever hazardous", () => {
 			const deltas = [-0.1, 0, 0.1]
-			let joint = 0, singles = 0, total = 0
-			for (const dx of deltas) for (const dy of deltas) for (const dx2 of deltas) for (const dy2 of deltas) {
-				total++
-				const a: AircraftState = { ...AAL221_ARMED, x: AAL221_ARMED.x + dx, y: AAL221_ARMED.y + dy }
-				const b: AircraftState = { ...SWA455, x: SWA455.x + dx2, y: SWA455.y + dy2 }
-				const init = [a, b] as const
-				if (fly([clearanceA(), clearanceB()], init).loss !== null) joint++
-				if (fly([clearanceA()], init).loss !== null) singles++
-				if (fly([clearanceB()], init).loss !== null) singles++
+			for (const commitS of [0, 34.58]) {
+				let joint = 0, singles = 0, total = 0
+				for (const dx of deltas) for (const dy of deltas) for (const dx2 of deltas) for (const dy2 of deltas) {
+					total++
+					const a: AircraftState = { ...AAL221_ARMED, x: AAL221_ARMED.x + dx, y: AAL221_ARMED.y + dy }
+					const b: AircraftState = { ...SWA455, x: SWA455.x + dx2, y: SWA455.y + dy2 }
+					const init = [a, b] as const
+					if (fly([clearanceA(commitS), clearanceB(commitS)], init).loss !== null) joint++
+					if (fly([clearanceA(commitS)], init).loss !== null) singles++
+					if (fly([clearanceB(commitS)], init).loss !== null) singles++
+				}
+				expect(joint).toBe(total)   // every jittered case still produces the joint hazard
+				expect(singles).toBe(0)     // and never a single-clearance one
 			}
-			expect(joint).toBe(total)   // every jittered case still produces the joint hazard
-			expect(singles).toBe(0)     // and never a single-clearance one
 		})
 
 		it("is a legible region, not one magic pair: shallow descents are safe", () => {
-			const heading = degreesToMdeg(340)
+			const heading = degreesToMdeg(348)
 			const hazardous = (targetAltFt: number) =>
 				fly([
 					{ ...clearanceA(), command: { targetAltFt } },

@@ -3,7 +3,7 @@ import { admissibleBandMs, admissibleGateRangeNm, isInBand } from "../../src/dom
 import { MAX_TURN_MS, MIN_TURN_MS } from "../../src/domain/interlock/decision-latency"
 import { evaluateJoint, findJointHazards } from "../../src/domain/interlock/joint-prober"
 import { COMMAND_LAG_S } from "../../src/domain/airspace/maneuver-window"
-import { KT_TO_NM_PER_S } from "../../src/domain/airspace/units"
+import { KT_TO_NM_PER_S, secondsToTick, tickToSeconds } from "../../src/domain/airspace/units"
 import { LATERAL_MINIMUM_NM, VERTICAL_MINIMUM_FT } from "../../src/domain/airspace/separation-standard"
 import {
 	GATE_A_NM, GATE_B_NM, HORIZON_S, INITIAL, MANEUVER_A_DURATION_S, MANEUVER_B_DURATION_S,
@@ -15,8 +15,23 @@ const A = clearanceA()
 const B = clearanceB()
 const band = admissibleBandMs()
 
-const probe = (pending: readonly (typeof A)[], atMs: number) =>
-	evaluateJoint({ world, pending, windows: WINDOWS, atMs, horizonSec: HORIZON_S })
+/**
+ * ONE CLOCK.
+ *
+ * A probe models a decision taken at `commitMs`, so the clearances are BUILT at that instant
+ * rather than baked at t=0 and judged at another time. An earlier version of this helper passed
+ * `atMs` for the window test while handing the geometry clearances committed at zero, which let
+ * the suite assert a joint hazard at a commit time where the aircraft are legally separated.
+ * Constructing the clearances from the same number is what makes that mistake unrepresentable.
+ */
+const probeAt = (ids: readonly ("A" | "B")[], commitMs: number) =>
+	evaluateJoint({
+		world,
+		pending: ids.map((id) => (id === "A" ? clearanceA(commitMs / 1000) : clearanceB(commitMs / 1000))),
+		windows: WINDOWS,
+		atMs: commitMs,
+		horizonSec: HORIZON_S,
+	})
 
 /**
  * THE THEOREM. Everything in this repo exists to make these assertions mean something.
@@ -27,20 +42,20 @@ const probe = (pending: readonly (typeof A)[], atMs: number) =>
 describe("theorem", () => {
 	describe("(a) the companion claim, stated first", () => {
 		it("theorem: the joint hazard IS visible to anything holding both as pending intent", () => {
-			const verdict = probe([A, B], 0)
+			const verdict = probeAt(["A", "B"], 0)
 			expect(verdict.hazards).toHaveLength(1)
 
 			const hazard = verdict.hazards[0]!
 			expect(hazard.clearanceIds).toEqual(["A", "B"])
-			expect(hazard.minHorizontalNm).toBeCloseTo(2.5361, 4)
+			expect(hazard.minHorizontalNm).toBeCloseTo(2.3511, 4)
 			expect(hazard.minHorizontalNm).toBeLessThan(LATERAL_MINIMUM_NM)
 			expect(hazard.verticalAtMinFt).toBeLessThan(VERTICAL_MINIMUM_FT)
-			expect(hazard.lossSeconds).toBeCloseTo(24.4, 1)
+			expect(hazard.lossSeconds).toBeCloseTo(34.54, 1)
 		})
 
 		it("neither clearance alone produces it — that is what makes it JOINT", () => {
-			expect(probe([A], 0).hazards).toEqual([])
-			expect(probe([B], 0).hazards).toEqual([])
+			expect(probeAt(["A"], 0).hazards).toEqual([])
+			expect(probeAt(["B"], 0).hazards).toEqual([])
 		})
 
 		it("refuses to call a hazard joint when one clearance is simply unsafe alone", () => {
@@ -58,7 +73,7 @@ describe("theorem", () => {
 
 	describe("(b) the real theorem — actionability, not blindness", () => {
 		it("theorem: serializing closes at least one aircraft's window, in BOTH orders", () => {
-			const serialized = probe([A, B], band.upperMs)
+			const serialized = probeAt(["A", "B"], band.upperMs)
 
 			// Whichever went first, the second decision arrives after that aircraft's window shut.
 			const excludedIds = serialized.excluded.map((e) => e.clearanceId).sort()
@@ -68,8 +83,12 @@ describe("theorem", () => {
 			const missedB = serialized.excluded.find((e) => e.clearanceId === "B")!
 			expect(missedA.reason).toBe("window-closed")
 			expect(missedB.reason).toBe("window-closed")
-			expect(missedA.missedByMs).toBeCloseTo(band.upperMs - WINDOW_A.windowMs, 0)
-			expect(missedB.missedByMs).toBeCloseTo(band.upperMs - WINDOW_B.windowMs, 0)
+			// Commit instants are integer 10 ms ticks — the whole determinism story rests on that —
+			// so the serialized commit lands on the tick at or before band.upperMs, not on the
+			// millisecond itself. Quantise the expectation rather than loosening it.
+			const committedMs = tickToSeconds(secondsToTick(band.upperMs / 1000)) * 1000
+			expect(missedA.missedByMs).toBeCloseTo(committedMs - WINDOW_A.windowMs, 0)
+			expect(missedB.missedByMs).toBeCloseTo(committedMs - WINDOW_B.windowMs, 0)
 
 			// BOTH must miss. If only one did, the hazard would be serializable and this is false.
 			expect(missedA.missedByMs).toBeGreaterThan(0)
@@ -77,17 +96,24 @@ describe("theorem", () => {
 		})
 
 		it("finds no hazard when serialized — not because it cannot see, but because nothing is left", () => {
-			const serialized = probe([A, B], band.upperMs)
+			const serialized = probeAt(["A", "B"], band.upperMs)
 			expect(serialized.hazards).toEqual([])
 			expect(serialized.considered).toEqual([])   // there was no candidate to look at
 			expect(serialized.excluded).toHaveLength(2)
 		})
 
 		it("finds it and can still act on it when the decisions are concurrent", () => {
-			const concurrent = probe([A, B], band.lowerMs)
+			// band.lowerMs is MAX_TURN_MS — the SLOWEST a concurrent pair can commit, so this is
+			// the worst case, not a friendly one. The hazard has to still be there.
+			const concurrent = probeAt(["A", "B"], band.lowerMs)
 			expect(concurrent.excluded).toEqual([])
 			expect(concurrent.considered).toEqual(["A", "B"])
 			expect(concurrent.hazards).toHaveLength(1)
+
+			// And at the fastest concurrent commit too, so it holds across the whole range.
+			const fastest = probeAt(["A", "B"], MIN_TURN_MS)
+			expect(fastest.excluded).toEqual([])
+			expect(fastest.hazards).toHaveLength(1)
 		})
 
 		it("is falsifiable: if the windows were wider, the serialized arm would find it too", () => {
@@ -95,9 +121,14 @@ describe("theorem", () => {
 			generous.set("A", { ...WINDOW_A, windowMs: 60_000 })
 			generous.set("B", { ...WINDOW_B, windowMs: 60_000 })
 			const verdict = evaluateJoint({
-				world, pending: [A, B], windows: generous, atMs: band.upperMs, horizonSec: HORIZON_S,
+				world,
+				pending: [clearanceA(band.upperMs / 1000), clearanceB(band.upperMs / 1000)],
+				windows: generous, atMs: band.upperMs, horizonSec: HORIZON_S,
 			})
 			expect(verdict.excluded).toEqual([])
+			// The hazard is STILL THERE at the serialized instant — see hazard-lifetime.test.ts,
+			// which asserts the lifetime covers it. So the serialized arm does not fail because the
+			// hazard evaporated; it fails because the window shut. That is the whole claim.
 			expect(verdict.hazards).toHaveLength(1)
 		})
 	})
@@ -137,7 +168,7 @@ describe("theorem", () => {
 			// Deterministic, but not round: timeToGate is 12.0 / (250/3600), which has no exact
 			// binary representation. Asserted to the millisecond, which is the unit that matters.
 			expect(WINDOW_A.windowMs).toBeCloseTo(44_360, 0)
-			expect(WINDOW_B.windowMs).toBeCloseTo(44_352, 0)
+			expect(WINDOW_B.windowMs).toBeCloseTo(43_684, 0)
 		})
 
 		it("states the admissible gate range, so the calibration is inspectable", () => {
@@ -161,14 +192,16 @@ describe("theorem", () => {
 		it("derives each window from real manoeuvre physics, not from a chosen number", () => {
 			// Descending 5000 ft at 2000 fpm genuinely takes 150 s.
 			expect(MANEUVER_A_DURATION_S).toBe(150)
-			// A 20 deg turn plus establishing 0.60 NM of offset genuinely takes ~32 s.
-			expect(MANEUVER_B_DURATION_S).toBeCloseTo(31.93, 1)
+			// A 12 deg turn plus establishing 0.60 NM of offset genuinely takes ~46 s. The shallower
+			// the turn, the longer it takes to build the same offset — which is exactly the trade
+			// that buys the joint hazard its lifetime.
+			expect(MANEUVER_B_DURATION_S).toBeCloseTo(45.56, 1)
 		})
 	})
 
 	describe("determinism", () => {
 		it("two identical evaluations agree exactly", () => {
-			expect(probe([A, B], 0)).toEqual(probe([A, B], 0))
+			expect(probeAt(["A", "B"], 0)).toEqual(probeAt(["A", "B"], 0))
 		})
 	})
 })
