@@ -4,6 +4,7 @@ import { probe } from "../../domain/feasibility/prober"
 import { DESCENT_FPM } from "../../scenarios/braid-2"
 import type { IntentRegistry } from "../../domain/interlock/intent-registry"
 import type { OutboxDispatcher } from "../../support/outbox"
+import type { QueryDesk } from "./query-desk"
 import { COMMIT_TOOL } from "../interlock-desk"
 
 export const ControllerEvent = {
@@ -30,6 +31,8 @@ export type ControllerToolDeps = {
 	readonly horizonSec: number
 	/** Announced-but-uncommitted intents, shared with the interlock desk. */
 	readonly intents: IntentRegistry
+	/** Ask-and-wait. Present only when pilots exist; without it, query_pilot is unavailable. */
+	readonly queryDesk?: QueryDesk
 }
 
 /**
@@ -88,7 +91,7 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 		{
 			type: "function",
 			name: "query_pilot",
-			description: "Ask a pilot a question in plain language. Their answer may reveal constraints not visible from the ground.",
+			description: "Ask a pilot a question in plain language and WAIT for the answer. Their reply may reveal constraints invisible from the ground — but waiting costs you part of your manoeuvre window.",
 			parameters: {
 				type: "object",
 				properties: { callsign: { type: "string" }, question: { type: "string" } },
@@ -99,7 +102,24 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 				deps.outbox.publish(ControllerEvent.PILOT_QUERIED, deps.participantId(), {
 					controller: deps.position, callsign, question,
 				})
-				return { acknowledged: true, note: "The pilot's reply arrives as a pilot.reply event." }
+				if (deps.queryDesk === undefined) {
+					return { answered: false, reason: "no pilots are reachable in this configuration" }
+				}
+
+				// AWAITED. FunctionCallState.run awaits the tool (API-NOTES #7), so this parks the
+				// whole controller turn for the length of a pilot's turn. Asking costs window —
+				// that is the trade-off, not a bug to engineer around.
+				const outcome = await deps.queryDesk.ask({
+					askerId: deps.participantId(), fromController: deps.position,
+					toCallsign: callsign, question,
+				})
+				if (!outcome.ok) {
+					return { answered: false, reason: outcome.reason, waitedMs: outcome.waitedMs }
+				}
+				return {
+					answered: true, callsign, reply: outcome.text,
+					claims: outcome.claims, waitedMs: outcome.waitedMs,
+				}
 			},
 		},
 		{

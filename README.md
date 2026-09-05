@@ -55,6 +55,35 @@ rewritten call, so it can reason about having been narrowed.
 
 `npm run demo:live` replays this from a committed cache with **zero API calls and no key**.
 
+### Geometry loses to socially-obtained information
+
+The sharpest answer to *"what did the language models decide that a solver could not?"* Live:
+
+```
+  widest margin : AAL221/turn-right-30    7.69 NM, 3.5 extra track miles
+  shortest track: AAL221/descend-4000     4.60 NM, 0.0 extra track miles
+  ordering      : lexicographic-by-optionId (semantically meaningless)
+
+  Both are separation-safe. Geometry cannot choose between them.
+
+APPROACH -> assess_traffic -> probe_feasible -> query_pilot
+                                                     |  parked, waiting
+AAL77   -> report_constraint  "a passenger with a deteriorating medical
+                               condition, requesting the shortest track"
+APPROACH -> probe_feasible -> assess_traffic -> propose_clearance
+```
+
+The controller **spent part of its manoeuvre window** to ask, then **re-probed and re-assessed**
+before proposing. The fact that decided the answer exists only in that pilot's closure — not in
+the world, not in a snapshot, not in any `FeasibleSet`.
+
+**Asking is not free.** `query_pilot`'s `invoke()` awaits the reply, and `FunctionCallState.run`
+awaits the tool, so the controller's whole turn is parked for the length of a pilot's turn — ~13 s
+against a ~44 s window. A controller must judge whether it can afford to find out, and the value of
+the unknown is exactly what it does not know. No solver resolves that.
+
+`npm run verify:social-information` replays it from the committed cache.
+
 ### Three limitations, stated plainly
 
 **One vendor, not three.** The design called for one seat of final authority per vendor, so a
@@ -71,6 +100,17 @@ its trigger is authored. Making objection model-driven is the obvious next step.
 **Only FLOW objects in the demo.** APPROACH's policy returns `null`, which is why FLOW's own
 clearance passes clean in the trace above even though it is also a descent on AAL221. That
 asymmetry is in the demo configuration, not the mechanism.
+
+**We do not claim a model chose to deceive.** One aircraft's sheet carries a fuel figure that does
+not reconcile with its observed burn. That discrepancy is *injected*, not decided by a model —
+because pilot and controller share weights here, so a "model caught a lying model" result would be
+self-play. Detection stays arithmetic (`ClaimLedger`, ground truth known), and the verdict says
+`cause: "unexplained"`, because a gauge fault, a leak and a shaded figure are indistinguishable
+from outside the aircraft. We never claimed to tell them apart.
+
+**The controller's question was generic.** In the live trace it asked for position and altitude,
+not constraints; the pilot volunteered the medical, which is realistic crew behaviour but means the
+disclosure was not precisely elicited. Reported rather than re-rolled until it looked deliberate.
 
 ### The calibration, stated up front
 
@@ -112,6 +152,7 @@ takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 | 2 | Deterministic world, zero tokens | ✅ |
 | 3 | The interlock — **the theorem as a test** | ✅ |
 | 4 | Live controllers | ✅ |
+| 5 | Live pilots, private constraints | ✅ |
 
 ## Reproduce
 
