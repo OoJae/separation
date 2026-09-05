@@ -3,6 +3,8 @@
  * Zero tokens, no network. `npm run verify:braid-2`
  */
 import { flyEncounter } from "../src/domain/airspace/encounter"
+import { admissibleBandMs } from "../src/domain/interlock/band"
+import { WINDOW_A, WINDOW_B } from "../src/scenarios/braid-2"
 import { HORIZON_S, INITIAL_ARMED, clearanceA, clearanceB } from "../src/scenarios/braid-2"
 
 const cases = [
@@ -36,6 +38,7 @@ console.log(`  A alone safe : ${aOnly!.r.loss === null}`)
 console.log(`  B alone safe : ${bOnly!.r.loss === null}`)
 console.log(`  A+B hazard   : ${both!.r.loss !== null}`)
 console.log(`\n  ${ok ? "PASS" : "FAIL"} — individually safe, jointly unsafe`)
+let serializationHolds = false
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // ROBUSTNESS. A knife-edge construction reads as rigged, so measure the neighbourhood and
@@ -112,12 +115,18 @@ console.log("ROBUSTNESS\n")
 
 // 4. Serialization — both orders must miss their window.
 {
-	const W_A = 9.8, W_B = 9.867
-	const CONCURRENT_MAX = 8.998, SERIALIZED_MIN = 12.4
-	console.log(`\n  4. windows: W_A=${W_A}s  W_B=${W_B}s`)
-	console.log(`     concurrent commit  <= ${CONCURRENT_MAX}s  -> A ${CONCURRENT_MAX <= W_A ? "makes it" : "MISSES"}, B ${CONCURRENT_MAX <= W_B ? "makes it" : "MISSES"}`)
-	console.log(`     serialized commit  >= ${SERIALIZED_MIN}s  -> A ${SERIALIZED_MIN <= W_A ? "makes it" : "MISSES"} by ${((SERIALIZED_MIN-W_A)*1000).toFixed(0)}ms, B ${SERIALIZED_MIN <= W_B ? "makes it" : "MISSES"} by ${((SERIALIZED_MIN-W_B)*1000).toFixed(0)}ms`)
+	// DERIVED, not hardcoded. These used to be four string literals carrying the pre-measurement
+	// values (W_A 9.8s, serialized 12.4s) and sitting outside the `ok` flag, so this section could
+	// never fail and contradicted verify:theorem by 4.5x on adjacent README lines.
+	const band = admissibleBandMs()
+	const wA = WINDOW_A.windowMs, wB = WINDOW_B.windowMs
+	const missA = band.upperMs - wA, missB = band.upperMs - wB
+	console.log(`\n  4. windows: W_A=${(wA / 1000).toFixed(2)}s  W_B=${(wB / 1000).toFixed(2)}s`)
+	console.log(`     concurrent commit  <= ${band.lowerMs}ms  -> A ${band.lowerMs <= wA ? "makes it" : "MISSES"}, B ${band.lowerMs <= wB ? "makes it" : "MISSES"}`)
+	console.log(`     serialized commit  >= ${band.upperMs}ms  -> A MISSES by ${missA.toFixed(0)}ms, B MISSES by ${missB.toFixed(0)}ms`)
 	console.log(`     => both orders miss. If only one missed, the hazard would be serializable.`)
+	serializationHolds = band.lowerMs <= wA && band.lowerMs <= wB && missA > 0 && missB > 0
 }
 
-process.exit(ok ? 0 : 1)
+console.log(`\n  ${ok && serializationHolds ? "PASS" : "FAIL"} — geometry and window arithmetic both hold`)
+process.exit(ok && serializationHolds ? 0 : 1)

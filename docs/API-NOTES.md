@@ -1,6 +1,6 @@
 # API notes — `@mozaik-ai/core@4.0.5`
 
-Fourteen findings from building SEPARATION, verified against the **shipped package** (`dist/index.js` and
+Twenty-one findings from building SEPARATION, verified against the **shipped package** (`dist/index.js` and
 its sourcemap), not the documentation. Each one is reproducible via `npm run spike`, which needs
 no network and no API key.
 

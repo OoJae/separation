@@ -19,7 +19,7 @@ import { TraceWriter } from "../src/instrument/trace-writer"
 import { BudgetGuard } from "../src/infrastructure/inference/budget-guard"
 import { InferenceCache } from "../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner"
-import { mimoFromEnv } from "../src/infrastructure/inference/mimo"
+import { MIMO_MODEL_NAME, mimoFromEnv } from "../src/infrastructure/inference/mimo"
 import { WorldEngine } from "../src/infrastructure/simulation/world-engine"
 import { TurnScheduler } from "../src/infrastructure/scheduling/turn-scheduler"
 import { ControllerEvent, createController, type ObjectionPayload } from "../src/participants/controller"
@@ -34,8 +34,18 @@ import { SystemClock } from "../src/support/ports"
 
 class TraceState extends RuntimeState {}
 
+/**
+ * NO KEY REQUIRED for a cached replay.
+ *
+ * This used to exit(2) when the endpoint was unconfigured — above any cache lookup — which made
+ * the README's "zero API calls and no key" false for the first command a judge runs. The model
+ * object is only needed for a cache MISS: `LiveInferenceRunner.run` consults the cache before the
+ * budget and before any provider call, and a genuine miss degrades to a refusal VALUE rather than
+ * throwing. So we carry on without it and say which mode we are in.
+ */
 const mimo = mimoFromEnv()
-if (mimo === null) { console.log("Set ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL in .env."); process.exit(2) }
+const modelName = mimo?.specification.name ?? MIMO_MODEL_NAME
+if (mimo === null) console.log("No endpoint configured — replaying from the committed cache only.")
 
 const clock = new SystemClock()
 const { initializeRuntime, join, runLoop, sendEvent } = defineRuntime<TraceState>()
@@ -59,7 +69,7 @@ const runner = new LiveInferenceRunner({
 	isSynthetic: () => false,
 	cache: new InferenceCache("fixtures/live-cache.jsonl"),
 	budget: new BudgetGuard(Number(process.argv.find((a) => a.startsWith("--calls="))?.split("=")[1] ?? 0)),
-	clock, measure: () => performance.now(), extraModels: [mimo],
+	clock, measure: () => performance.now(), extraModels: mimo ? [mimo] : [],
 })
 
 const common = {
@@ -107,7 +117,7 @@ broker.bidSync({ controller: "FLOW", callsign: "AAL221", objective: "metering-in
 console.log("Recording BRAID-2 — world + controllers, replaying from cache\n")
 
 // Start both controllers thinking, then fly the world underneath them.
-const template = { model: mimo.specification.name, maxOutputTokens: 2_000 }
+const template = { model: modelName, maxOutputTokens: 2_000 }
 scheduler.begin(approach, OPENING.APPROACH, { ...template, tools: approach.getTools() }, desk.handler())
 scheduler.begin(flow, OPENING.FLOW, { ...template, tools: flow.getTools() }, desk.handler())
 

@@ -15,7 +15,7 @@ import { IntentRegistry } from "../src/domain/interlock/intent-registry"
 import { BudgetGuard } from "../src/infrastructure/inference/budget-guard"
 import { InferenceCache } from "../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner"
-import { mimoFromEnv } from "../src/infrastructure/inference/mimo"
+import { MIMO_MODEL_NAME, mimoFromEnv } from "../src/infrastructure/inference/mimo"
 import { TurnScheduler } from "../src/infrastructure/scheduling/turn-scheduler"
 import { QueryDesk } from "../src/participants/controller/query-desk"
 import { createController } from "../src/participants/controller"
@@ -28,8 +28,18 @@ import { SystemClock } from "../src/support/ports"
 
 class S extends RuntimeState {}
 const calls = Number(process.argv.find((a) => a.startsWith("--calls="))?.split("=")[1] ?? 8)
+/**
+ * NO KEY REQUIRED for a cached replay.
+ *
+ * This used to exit(2) when the endpoint was unconfigured — above any cache lookup — which made
+ * the README's "zero API calls and no key" false for the first command a judge runs. The model
+ * object is only needed for a cache MISS: `LiveInferenceRunner.run` consults the cache before the
+ * budget and before any provider call, and a genuine miss degrades to a refusal VALUE rather than
+ * throwing. So we carry on without it and say which mode we are in.
+ */
 const mimo = mimoFromEnv()
-if (mimo === null) { console.log("Set ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL in .env."); process.exit(2) }
+const modelName = mimo?.specification.name ?? MIMO_MODEL_NAME
+if (mimo === null) console.log("No endpoint configured — replaying from the committed cache only.")
 
 const clock = new SystemClock()
 const cache = new InferenceCache("fixtures/live-cache.jsonl")
@@ -37,7 +47,7 @@ const budget = new BudgetGuard(calls)
 const runner = new LiveInferenceRunner({
 	scripted: () => { throw new Error("no synthetic models here") },
 	isSynthetic: () => false, cache, budget, clock,
-	measure: () => performance.now(), extraModels: [mimo],
+	measure: () => performance.now(), extraModels: mimo ? [mimo] : [],
 })
 
 const { initializeRuntime, join, runLoop, sendEvent } = defineRuntime<S>()
@@ -52,7 +62,7 @@ const set = probe({ subject: "AAL221", world: world(), forGeneration: 1, horizon
 const widest = [...set.options].sort((a, b) => b.margins.minHorizontalNm - a.margins.minHorizontalNm)[0]!
 const shortest = [...set.options].sort((a, b) => a.cost.deltaTrackMilesNm - b.cost.deltaTrackMilesNm)[0]!
 
-console.log(`GEOMETRY LOSES TO SOCIALLY-OBTAINED INFORMATION — ${mimo.specification.name}\n`)
+console.log(`GEOMETRY LOSES TO SOCIALLY-OBTAINED INFORMATION — ${modelName}\n`)
 console.log(`  What geometry alone offers for the subject aircraft:`)
 console.log(`    widest margin : ${widest.optionId.padEnd(26)} ${widest.margins.minHorizontalNm.toFixed(2)} NM, ${widest.cost.deltaTrackMilesNm.toFixed(1)} extra track miles`)
 console.log(`    shortest track: ${shortest.optionId.padEnd(26)} ${shortest.margins.minHorizontalNm.toFixed(2)} NM, ${shortest.cost.deltaTrackMilesNm.toFixed(1)} extra track miles`)
@@ -70,7 +80,7 @@ const pilots = PILOT_SHEETS.map((sheet) => {
 		beginTurn: (self, message) => {
 			console.log(`  [pilot turn]  ${sheet.callsign} is thinking...`)
 			scheduler.begin(self, message, {
-				model: mimo.specification.name, maxOutputTokens: 800, tools: self.getTools(),
+				model: modelName, maxOutputTokens: 800, tools: self.getTools(),
 			})
 		},
 	})
@@ -134,7 +144,7 @@ for (const p of [observer, controller, ...pilots]) { join(p); identity.register(
 
 const started = performance.now()
 scheduler.begin(controller, `Vector ${MEDICAL_CALLSIGN} to the runway.`, {
-	model: mimo.specification.name, maxOutputTokens: 1_200, tools: controller.getTools(),
+	model: modelName, maxOutputTokens: 1_200, tools: controller.getTools(),
 })
 await new Promise((r) => setTimeout(r, 150_000))
 

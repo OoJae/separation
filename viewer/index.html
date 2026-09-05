@@ -85,6 +85,12 @@ const COLOR = { APPROACH: "#4da3ff", FLOW: "#c77dff", DEPARTURE: "#ffb340" }
 
 fetch("../fixtures/trace.json").then(r => r.json()).then(init)
   .catch(() => fetch("trace.json").then(r => r.json()).then(init))
+  .catch((err) => {
+    // file:// blocks fetch in every browser. Say so rather than sitting on "loading…".
+    $("meta").textContent = location.protocol === "file:"
+      ? "cannot load over file:// — run `npm run viewer` and open http://localhost:8080/viewer/"
+      : "could not load fixtures/trace.json — run `npm run record:trace` first  (" + err + ")"
+  })
 
 function init(data) {
   trace = data
@@ -166,7 +172,13 @@ function renderLog() {
   for (const e of trace.events.slice(0, 400)) {
     const el = document.createElement("div")
     el.className = "ev"; el.dataset.t = e.tSim
-    el.innerHTML = `<span>${(e.tSim / 1000).toFixed(1)}s</span><span><span class="ty">${e.type}</span> ${e.summary ?? ""}</span>`
+    // textContent, not innerHTML: e.summary interpolates MODEL-AUTHORED strings (objection
+    // reasons, pilot replies), so innerHTML would execute whatever a model happened to write.
+    const t = document.createElement("span"); t.textContent = (e.tSim / 1000).toFixed(1) + "s"
+    const b = document.createElement("span")
+    const ty = document.createElement("span"); ty.className = "ty"; ty.textContent = e.type
+    b.appendChild(ty); b.appendChild(document.createTextNode(" " + (e.summary ?? "")))
+    el.appendChild(t); el.appendChild(b)
     host.appendChild(el)
   }
 }

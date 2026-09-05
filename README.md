@@ -24,7 +24,7 @@ JigJoy × daily.dev × Hyperskill *Systems of Concurrent Agents* hackathon.
 Two clearances are individually safe and jointly unsafe. The hazard **is** visible to anything
 holding both as pending intent — that is exactly what the interlock does, and exactly what
 validate-at-commit does not. And the two cannot be serialized: a serialized system cannot reach its
-second decision before 12 400 ms (turn + 8.0 s single-channel readback + turn), by which time the
+second decision before 53 132 ms (turn + 8.0 s single-channel readback + turn), by which time the
 other aircraft's manoeuvre window has closed. **Both orders fail.** If only one did, the hazard
 would be serializable and the theorem would be false.
 
@@ -131,7 +131,7 @@ clock only offers timers already due — so no unreachable schedule is even expr
 separates this from a random number generator with a violation counter.
 
 The seam is also **non-invasive**: the default policy reproduces the previous behaviour exactly, and
-all 247 tests pass unchanged with it installed. If that were not true, every determinism claim in
+all 268 tests pass unchanged with it installed. If that were not true, every determinism claim in
 Phases 2–5 would be suspect.
 
 ### See it
@@ -147,17 +147,17 @@ overlap for **2637 ms**.
 
 ```bash
 npm run record:trace     # replays from the committed cache, zero calls
-open viewer/index.html   # "jump to the objection" lands on the money shot
+npm run viewer           # serves on :8080 — file:// cannot fetch the trace
 ```
 
 ### The ablation — 3 arms × 200 seeds, 600 runs, zero tokens
 
 One deterministic decision policy across all three arms, so the only variable is the architecture.
 
-| arm | sep losses | joint hazards caught | content differs |
+| arm | sep losses *(of 100 hazardous seeds)* | joint hazards caught | content differs |
 |---|---|---|---|
-| world-waits *(sequential-equivalent)* | 200 | 0 | **0 (by construction)** |
-| concurrent, validate-at-commit only | 200 | 0 | 0 |
+| world-waits *(sequential-equivalent)* | 100 | 0 | **0 (by construction)** |
+| concurrent, validate-at-commit only | 100 | 0 | 0 |
 | **concurrent + interlock** | **0** | **100** | **100** |
 
 *Column three is why it is not a pipeline.* It is 0 in the sequential arm **by construction** — no
@@ -220,7 +220,9 @@ Only two of three failure modes were the bypass. A well-formed commit naming an 
 clearance is legitimate — the tool answers *"unknown clearance X — propose it first"* — so refusing
 it too would have broken a working path. `parse` now returns
 `PendingClearance | "malformed" | "unresolved"`, and only `"malformed"` is refused, announced, and
-substituted with a message the controller reasons about.
+substituted with a `model_message` in place of the action. (The substituted message ends the
+turn rather than re-entering the agent's context — `model_message` routes to `idle` — so it stops
+the instruction, it does not brief the controller.)
 
 The demo also no longer ends on a 180-second sleep sitting in the evidence path — it exits when the
 sector is **settled**: no controller still deciding, nothing held unadjudicated. It now finishes in
@@ -307,10 +309,10 @@ and no credentials must still be able to reproduce the central claims.
 ```bash
 npm install
 npm run spike               # regenerates spike/RESULTS.md against the shipped package
-npm test                    # 194 tests
+npm test                    # 268 tests
 npm run verify:theorem      # THE THEOREM
 npm run verify:braid-2      # the scenario, measured by the shipped integrator
-npm run verify:reflex-silent# proves TCAS never sees the joint hazard
+npm run verify:reflex-silent  # proves TCAS never sees the joint hazard
 npm run verify:determinism  # same seed twice, byte-identical + state hash
 npm run typecheck
 ```
@@ -382,7 +384,7 @@ src/
   infrastructure/  scheduling (turns, ledgers, orphan repair), driver
   participants/    recorder, identity book
 tests/substrate/   the Phase 1 gate
-docs/API-NOTES.md  14 findings against @mozaik-ai/core@4.0.5, with evidence
+docs/API-NOTES.md  21 findings against @mozaik-ai/core@4.0.5, with evidence
 ```
 
 ## License
