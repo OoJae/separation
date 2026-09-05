@@ -2,6 +2,7 @@ import { describe, expect, it } from "@rstest/core"
 import { runScenario, SCENARIOS } from "../../src/main"
 import { drawRoundMs, drawTurnMs, MAX_TURN_MS, MIN_TURN_MS, ROUND_MS_DECILES } from "../../src/infrastructure/inference/latency-model"
 import { Rng } from "../../src/support/rng"
+import { WINDOW_A, WINDOW_B } from "../../src/scenarios/braid-2"
 
 describe("full scenario on the real bus", () => {
 	it("runs every arm headless with zero tokens", () => {
@@ -82,7 +83,7 @@ describe("synthetic latency", () => {
 	 * aircraft's manoeuvre windows, and a serialized one (two turns plus 8s of radio) does not.
 	 */
 	it("makes the concurrent commit fit and the serialized one miss", () => {
-		const W_A_MS = 9_800, W_B_MS = 9_867
+		const W_A_MS = WINDOW_A.windowMs, W_B_MS = WINDOW_B.windowMs
 		const T_RT_MS = 8_000
 		expect(MAX_TURN_MS).toBeLessThan(W_A_MS)
 		expect(MAX_TURN_MS).toBeLessThan(W_B_MS)

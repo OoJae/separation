@@ -1,4 +1,5 @@
 import { ModelMessageItem, SemanticEvent, supportedModels } from "@mozaik-ai/core"
+import type { GenerativeModelLike } from "./mimo"
 import type { InferenceInput, InferenceOutput, InferenceRunner } from "@mozaik-ai/core"
 import type { Clock } from "../../support/ports"
 import { BudgetGuard } from "./budget-guard"
@@ -39,6 +40,8 @@ export class LiveInferenceRunner implements InferenceRunner {
 			readonly budget: BudgetGuard
 			readonly clock: Clock
 			readonly measure: () => number
+			/** Extra models beyond the bundled roster — e.g. an Anthropic-compatible third party. */
+			readonly extraModels?: readonly GenerativeModelLike[]
 		},
 	) {}
 
@@ -60,7 +63,8 @@ export class LiveInferenceRunner implements InferenceRunner {
 			return refusal(`budget exhausted: ${verdict.spent}/${verdict.cap} live calls used`)
 		}
 
-		const model = supportedModels.find((m) => m.specification.name === input.model)
+		const model = [...(this.deps.extraModels ?? []), ...supportedModels]
+			.find((m) => m.specification.name === input.model)
 		if (!model) return refusal(`unsupported model ${input.model}`)
 
 		const started = this.deps.measure()

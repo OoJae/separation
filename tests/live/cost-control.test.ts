@@ -3,7 +3,12 @@ import { FunctionCallItem, ModelContext, ModelMessageItem, UserMessageItem, type
 import { BudgetGuard } from "../../src/infrastructure/inference/budget-guard"
 import { InferenceCache, cacheKeyFor } from "../../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../../src/infrastructure/inference/live-runner"
-import { ROSTER, availableProviders, resolveEffort, vendorsAreDistinct } from "../../src/infrastructure/inference/model-roster"
+import {
+	AUTHORITIES_ARE_DISTINCT, MULTI_VENDOR, OBJECTIVES_ARE_DISTINCT, ROSTER,
+	configuredProviders, resolveEffort,
+} from "../../src/infrastructure/inference/model-roster"
+import { mimoModel } from "../../src/infrastructure/inference/mimo"
+import { supportedModels } from "@mozaik-ai/core"
 import { VirtualClock } from "../../src/support/ports"
 
 const input = (model: string, text: string): InferenceInput => ({
@@ -103,32 +108,45 @@ describe("cost control — built before the first live call", () => {
 		})
 	})
 
-	describe("model roster — one seat of authority per vendor", () => {
-		it("puts every seat on a DIFFERENT vendor", () => {
-			expect(vendorsAreDistinct()).toBe(true)
-			expect(ROSTER.map((s) => s.provider).sort()).toEqual(["anthropic", "google", "openai"])
-		})
-
-		it("names a distinct authority per seat, so removing a vendor darkens something specific", () => {
-			expect(new Set(ROSTER.map((s) => s.authority)).size).toBe(ROSTER.length)
-		})
-
+	describe("model roster — what actually distinguishes the seats", () => {
 		/**
-		 * Finding #10: effort vocabularies are not uniform. A hardcoded ladder throws when a
-		 * participant changes model, so the literal is resolved against the shipped spec.
+		 * The design wanted one vendor per seat, so a peer's objection would come from a different
+		 * prior. Only one endpoint is configured, so it does not. This asserts the LIMITATION,
+		 * because a test that quietly passed either way would be worthless.
 		 */
-		it("resolves effort against each model's own vocabulary", () => {
-			expect(resolveEffort("claude-opus-4-8", "high")).toBe("high")
-			expect(resolveEffort("claude-opus-4-8", "none")).toBe("low")      // no "none" on opus
-			expect(resolveEffort("claude-haiku-4-5", "max")).toBe("high")     // no "max" on haiku
-			expect(resolveEffort("gemini-3.5-flash", "minimal")).toBe("minimal")
-			expect(resolveEffort("no-such-model", "high")).toBeUndefined()
+		it("is NOT multi-vendor today, and says so", () => {
+			expect(MULTI_VENDOR).toBe(false)
+			expect(new Set(ROSTER.map((s) => s.model)).size).toBe(1)
 		})
 
-		it("reports which providers have keys without failing on missing ones", () => {
-			expect(availableProviders({})).toEqual(new Set())
-			expect(availableProviders({ ANTHROPIC_API_KEY: "k" })).toEqual(new Set(["anthropic"]))
-			expect(availableProviders({ GOOGLE_API_KEY: "k", OPENAI_API_KEY: "k" })).toEqual(new Set(["google", "openai"]))
+		it("still distinguishes the seats by authority and objective, which is what drives disagreement", () => {
+			expect(AUTHORITIES_ARE_DISTINCT).toBe(true)
+			expect(OBJECTIVES_ARE_DISTINCT).toBe(true)
+			expect(ROSTER).toHaveLength(3)
+		})
+
+		it("records the intended vendor per seat, so restoring the claim is a config change", () => {
+			expect(ROSTER.map((s) => s.intendedProvider).sort()).toEqual(["anthropic", "google", "openai"])
+		})
+
+		it("resolves effort against each model's own vocabulary", () => {
+			const spec = (name: string) => supportedModels.find((m) => m.specification.name === name)?.specification
+			expect(resolveEffort("high", spec("claude-opus-4-8"))).toBe("high")
+			expect(resolveEffort("none", spec("claude-opus-4-8"))).toBe("low")   // no "none" on opus
+			expect(resolveEffort("max", spec("claude-haiku-4-5"))).toBe("high")  // no "max" on haiku
+			expect(resolveEffort("high", undefined)).toBeUndefined()
+		})
+
+		it("declares no reasoning effort for MiMo — it thinks unprompted and the config costs budget", () => {
+			const mimo = mimoModel({ baseURL: "https://example.invalid", apiKey: "x" })
+			expect(mimo.specification.supportsReasoningEffort).toBe(false)
+			expect(resolveEffort("high", mimo.specification)).toBeUndefined()
+		})
+
+		it("reports configured endpoints without failing on missing ones", () => {
+			expect(configuredProviders({})).toEqual(new Set())
+			expect(configuredProviders({ ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: "u" })).toEqual(new Set(["mimo"]))
+			expect(configuredProviders({ ANTHROPIC_API_KEY: "k" })).toEqual(new Set(["anthropic"]))
 		})
 	})
 })

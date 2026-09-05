@@ -402,3 +402,53 @@ factory that constructs one.
 **Our workaround:** dispatch to `supportedModels[i].endpoint.infer(input)` directly — the endpoints
 *are* exported. That is what `DefaultInferenceRunner.run` does minus the validation step; we
 validate reasoning effort ourselves in `model-roster.ts`.
+
+---
+
+## 20. You cannot name the type the public config asks for
+
+`InferenceRunnerConfig` **is** exported:
+
+```ts
+export type InferenceRunnerConfig = {
+    supportedModels?: GenerativeModel[]
+    runner?: InferenceRunner
+}
+```
+
+`GenerativeModel` and `ModelSpecification` are **not**. So registering a custom model — which the
+docs present as the supported extension point, and which `initializeRuntime` explicitly accepts —
+cannot be typed by a consumer. `Endpoint` is exported; the two types you need to actually build one
+are not.
+
+Same shape as #19: the entry point is public, one of its required types is private.
+
+**Suggested fix:** export `GenerativeModel` and `ModelSpecification` alongside `Endpoint`.
+
+**Our workaround:** `GenerativeModelLike` / `ModelSpecificationLike` in
+`src/infrastructure/inference/mimo.ts`, declared structurally to match the shipped shape. It works,
+because the runtime only reads fields — but it is a copy that will silently drift if the real type
+changes.
+
+---
+
+## 21. Third-party Anthropic-compatible endpoints work, and that is a design win
+
+Pointing the shipped `AnthropicMessages` adapter at a compatible third party (MiMo / Xiaomi) needed
+**no new provider code**: the adapter already takes `{baseURL, apiKey}`, so a custom
+`GenerativeModel` plus a spec was the whole integration. Credit where it is due — that is the
+extension point working exactly as designed.
+
+Two portability notes found by testing the live endpoint rather than assuming:
+
+**`thinking` blocks come back with an empty `signature`, and MiMo accepts them echoed back.** Real
+Anthropic rejects an empty signature. `AnthropicMessagesMapper.toResponse` maps a `thinking` block
+to a `ReasoningItem` carrying `encryptedContent: block.signature`, and `mapContextItems` echoes it
+straight back on the next turn. So a context that survives against one Anthropic-compatible provider
+can 400 against another. Stripping `ReasoningItem`s (as `orphan-repair.ts` already does) turns out
+to be the *portable* choice, not just a defensive one.
+
+**`max_tokens` is required by real Anthropic but optional here.** The mapper does
+`request.max_tokens = inferenceInput.maxOutputTokens!` — a non-null assertion over an optional
+field. Omit `maxOutputTokens` and `max_tokens: undefined` goes on the wire: fine against MiMo,
+a 400 against Anthropic. The `!` hides a real difference between providers.

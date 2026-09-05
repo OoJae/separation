@@ -15,61 +15,79 @@ import { MAX_ROUND_MS, MIN_ROUND_MS, ROUND_MS_DECILES } from "../src/domain/inte
 import { BudgetGuard } from "../src/infrastructure/inference/budget-guard"
 import { InferenceCache } from "../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner"
-import { ROSTER, availableProviders, resolveEffort } from "../src/infrastructure/inference/model-roster"
+import { mimoFromEnv } from "../src/infrastructure/inference/mimo"
 import { SystemClock } from "../src/support/ports"
 
-const calls = Number(process.argv.find((a) => a.startsWith("--calls="))?.split("=")[1] ?? 6)
-const available = availableProviders()
-const seats = ROSTER.filter((s) => available.has(s.provider))
+const calls = Number(process.argv.find((a) => a.startsWith("--calls="))?.split("=")[1] ?? 10)
 
-if (seats.length === 0) {
-	console.log("No provider keys found. Add ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY to .env.")
+const mimo = mimoFromEnv()
+if (mimo === null) {
+	console.log("No model configured. Set ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL in .env.")
 	process.exit(2)
 }
 
 const runner = new LiveInferenceRunner({
 	scripted: () => { throw new Error("unreachable") },
 	isSynthetic: () => false,
-	cache: new InferenceCache("traces/latency-cache.jsonl"),
+	cache: new InferenceCache(null), // measuring latency: a cache hit would report 0ms
 	budget: new BudgetGuard(calls),
 	clock: new SystemClock(),
 	measure: () => performance.now(),
+	extraModels: [mimo],
 })
 
-const PROMPT = `You are an approach controller. AAL221 is at 9000 ft descending, SWA455 at 6000 ft, converging.
-In two sentences, state which aircraft you would move first and why. Do not call any tool.`
+const PROMPT = `You are an approach controller in a busy TRACON sector.
+AAL221 is at 9000 ft descending toward the runway; SWA455 is at 6000 ft climbing on a converging
+track. Both are at 250 knots. In two sentences, say which aircraft you would move first and why.`
 
-console.log(`Measuring ${calls} live rounds across ${seats.map((s) => s.provider).join(", ")}\n`)
+console.log(`Measuring ${calls} live rounds against ${mimo.specification.name}\n`)
 const latencies: number[] = []
 for (let i = 0; i < calls; i++) {
-	const seat = seats[i % seats.length]!
-	const spec = supportedModels.find((m) => m.specification.name === seat.model)
-	if (!spec) { console.log(`  ${seat.model}: not in supportedModels`); continue }
 	const started = performance.now()
 	await runner.run({
-		model: seat.model,
-		reasoningEffort: resolveEffort(seat.model, "low"),
-		maxOutputTokens: 200,
-		context: new ModelContext(`m${i}`, [UserMessageItem.create(`${PROMPT} (round ${i})`)]),
+		model: mimo.specification.name,
+		maxOutputTokens: 400,
+		context: new ModelContext(`m${i}`, [UserMessageItem.create(`${PROMPT} (scenario variant ${i})`)]),
 		tools: [],
 	})
 	const ms = Math.round(performance.now() - started)
 	latencies.push(ms)
-	console.log(`  ${seat.provider.padEnd(10)} ${seat.model.padEnd(24)} ${String(ms).padStart(6)} ms`)
+	console.log(`  round ${String(i + 1).padStart(2)}: ${String(ms).padStart(6)} ms`)
 }
 
 latencies.sort((a, b) => a - b)
 const band = admissibleBandMs()
-const min = latencies[0]!, max = latencies[latencies.length - 1]!
-console.log(`\n  measured one-round latency: [${min}, ${max}] ms  (n=${latencies.length})`)
-console.log(`  assumed deciles:            [${MIN_ROUND_MS}, ${MAX_ROUND_MS}] ms`)
-console.log(`  deciles: ${ROUND_MS_DECILES.join(", ")}`)
+const min = latencies[0]!
+const max = latencies[latencies.length - 1]!
+const pct = (p: number) => latencies[Math.min(latencies.length - 1, Math.floor((p / 100) * latencies.length))]!
+
+console.log(`\n  measured: [${min}, ${max}] ms   p50 ${pct(50)}   p90 ${pct(90)}   n=${latencies.length}`)
+console.log(`  assumed:  [${MIN_ROUND_MS}, ${MAX_ROUND_MS}] ms`)
 
 const inside = min >= MIN_ROUND_MS && max <= MAX_ROUND_MS
-console.log(`\n  ${inside ? "PASS" : "TRIPWIRE"} — measured latency ${inside ? "fits" : "does NOT fit"} the assumed distribution`)
+console.log(`\n  ${inside ? "PASS" : "TRIPWIRE FIRED"} — measured latency ${inside ? "fits" : "does NOT fit"} the assumed distribution`)
+
 if (!inside) {
-	console.log(`  The admissible band (${band.lowerMs}, ${band.upperMs}) ms was derived from the assumed`)
-	console.log(`  deciles. Re-derive ROUND_MS_DECILES from these measurements, then re-derive the`)
-	console.log(`  gates in src/scenarios/braid-2.ts. Do NOT clamp the distribution to fit.`)
+	// Build honest deciles from the measurement, by linear interpolation over the sorted sample.
+	const deciles: number[] = []
+	for (let d = 0; d <= 10; d++) {
+		const pos = (d / 10) * (latencies.length - 1)
+		const lo = Math.floor(pos), hi = Math.ceil(pos)
+		deciles.push(Math.round(latencies[lo]! + (latencies[hi]! - latencies[lo]!) * (pos - lo)))
+	}
+	const minTurn = deciles[0]! * 2
+	const maxTurn = (deciles[10]! - 1) * 2
+	const newUpper = minTurn + 8_000 + minTurn
+	console.log(`\n  The admissible band was derived from the ASSUMED deciles. Re-derive, do not clamp.\n`)
+	console.log(`  measured deciles:  [${deciles.join(", ")}]`)
+	console.log(`  turn (2 rounds):   [${minTurn}, ${maxTurn}] ms`)
+	console.log(`  old band:          (${band.lowerMs}, ${band.upperMs}) ms   width ${band.widthMs}`)
+	console.log(`  NEW band:          (${maxTurn}, ${newUpper}) ms   width ${newUpper - maxTurn}`)
+
+	const V = 250 / 3600
+	const gate = (durationS: number, windowMs: number) => ((windowMs / 1000 + durationS + 13) * V).toFixed(4)
+	console.log(`\n  re-derived gate ranges:`)
+	console.log(`    BAYLR (A, 150.00s manoeuvre): [${gate(150, maxTurn)}, ${gate(150, newUpper)}] NM`)
+	console.log(`    CARDL (B,  31.93s manoeuvre): [${gate(31.93, maxTurn)}, ${gate(31.93, newUpper)}] NM`)
 }
 process.exit(inside ? 0 : 1)

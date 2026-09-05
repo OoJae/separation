@@ -92,10 +92,17 @@ export const INITIAL_ARMED = INITIAL
 // gates, instead of letting a stale calibration slide through.
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
-/** BAYLR — AAL221 must be level at 4000 by here. */
-export const GATE_A_NM = 12.0
-/** CARDL — SWA455 must be established with 0.60 NM of in-trail offset by here. */
-export const GATE_B_NM = 3.86
+/**
+ * BAYLR — AAL221 must be level at 4000 by here.
+ * RE-DERIVED 2026-09-05 from measured latency (was 12.0 NM against the assumed distribution).
+ * Admissible range is now [13.7208, 15.0092] NM; 14.4 sits near its centre.
+ */
+export const GATE_A_NM = 14.4
+/**
+ * CARDL — SWA455 must be established with 0.60 NM of in-trail offset by here.
+ * RE-DERIVED likewise (was 3.86 NM). Admissible range [5.5215, 6.8099] NM.
+ */
+export const GATE_B_NM = 6.2
 
 export const REQUIRED_OFFSET_NM = 0.6
 export const TURN_DEGREES = 20

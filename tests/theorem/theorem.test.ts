@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@rstest/core"
 import { admissibleBandMs, admissibleGateRangeNm, isInBand } from "../../src/domain/interlock/band"
+import { MAX_TURN_MS, MIN_TURN_MS } from "../../src/domain/interlock/decision-latency"
 import { evaluateJoint, findJointHazards } from "../../src/domain/interlock/joint-prober"
 import { COMMAND_LAG_S } from "../../src/domain/airspace/maneuver-window"
 import { KT_TO_NM_PER_S } from "../../src/domain/airspace/units"
@@ -108,10 +109,26 @@ describe("theorem", () => {
 		 * the latency deciles fails here and tells you to re-derive the gates rather than letting
 		 * a stale calibration slide through. That is also the Phase 4 tripwire.
 		 */
+		/**
+		 * The band is DERIVED, so this asserts the derivation rather than the literals. Re-measure
+		 * latency and these numbers move together; the relationships must not.
+		 */
 		it("derives the band from the latency model alone", () => {
-			expect(band.lowerMs).toBe(8_998)   // slowest concurrent commit
-			expect(band.upperMs).toBe(12_400)  // fastest serialized second commit
-			expect(band.widthMs).toBe(3_402)
+			expect(band.lowerMs).toBe(MAX_TURN_MS)                       // slowest concurrent commit
+			expect(band.upperMs).toBe(MIN_TURN_MS + 8_000 + MIN_TURN_MS) // fastest serialized second
+			expect(band.widthMs).toBe(band.upperMs - band.lowerMs)
+			expect(band.widthMs).toBeGreaterThan(0)                      // else no gate could ever work
+		})
+
+		/**
+		 * Pins the MEASURED calibration (mimo-v2.5-pro, 2026-09-05, n=10). If a re-measurement
+		 * moves these, that is the tripwire working — update them from the measurement, never the
+		 * other way round.
+		 */
+		it("pins the measured band, so a silent drift is visible", () => {
+			expect(band.lowerMs).toBe(34_580)
+			expect(band.upperMs).toBe(53_132)
+			expect(band.widthMs).toBe(18_552)
 		})
 
 		it("puts both scenario gates strictly inside it", () => {
@@ -119,8 +136,8 @@ describe("theorem", () => {
 			expect(isInBand(WINDOW_B.windowMs)).toBe(true)
 			// Deterministic, but not round: timeToGate is 12.0 / (250/3600), which has no exact
 			// binary representation. Asserted to the millisecond, which is the unit that matters.
-			expect(WINDOW_A.windowMs).toBeCloseTo(9_800, 6)
-			expect(WINDOW_B.windowMs).toBeCloseTo(10_656, 0)
+			expect(WINDOW_A.windowMs).toBeCloseTo(44_360, 0)
+			expect(WINDOW_B.windowMs).toBeCloseTo(44_352, 0)
 		})
 
 		it("states the admissible gate range, so the calibration is inspectable", () => {
@@ -128,8 +145,12 @@ describe("theorem", () => {
 			const rangeA = admissibleGateRangeNm({ maneuverDurationS: MANEUVER_A_DURATION_S, lagS: COMMAND_LAG_S, speedNmPerSec: speed })
 			const rangeB = admissibleGateRangeNm({ maneuverDurationS: MANEUVER_B_DURATION_S, lagS: COMMAND_LAG_S, speedNmPerSec: speed })
 
-			expect(rangeA.minNm).toBeCloseTo(11.9443, 4)
-			expect(rangeA.maxNm).toBeCloseTo(12.1806, 4)
+			expect(rangeA.minNm).toBeCloseTo(13.7208, 4)
+			expect(rangeA.maxNm).toBeCloseTo(15.0092, 4)
+
+			// The measured distribution made the calibration FIVE TIMES more tolerant than the
+			// assumed one did: the admissible gate range widened from 0.24 NM to 1.29 NM.
+			expect(rangeA.maxNm - rangeA.minNm).toBeGreaterThan(1.2)
 			expect(GATE_A_NM).toBeGreaterThan(rangeA.minNm)
 			expect(GATE_A_NM).toBeLessThan(rangeA.maxNm)
 
