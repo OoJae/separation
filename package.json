@@ -18,7 +18,9 @@
     "measure:latency": "tsx scripts/measure-latency.ts",
     "demo:live": "tsx scripts/demo-live.ts",
     "verify:social-information": "tsx scripts/verify-social-information.ts",
-    "retrace:explore": "tsx scripts/retrace-explore.ts"
+    "retrace:explore": "tsx scripts/retrace-explore.ts",
+    "record:trace": "tsx scripts/record-trace.ts",
+    "ablate": "tsx scripts/ablate.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",

@@ -1,0 +1,279 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SEPARATION — trace viewer</title>
+<style>
+  :root{
+    --bg:#080b10; --panel:#0d1219; --line:#1b2632; --ink:#c8d6e5; --dim:#5d7186;
+    --scope:#2ff08a; --warn:#ffb340; --bad:#ff5c5c; --approach:#4da3ff; --flow:#c77dff; --world:#3d5266;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}
+  header{display:flex;align-items:baseline;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line)}
+  h1{font-size:14px;margin:0;letter-spacing:.14em;text-transform:uppercase}
+  .sub{color:var(--dim);font-size:11px}
+  .wrap{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 46px)}
+  .left{display:grid;grid-template-rows:1fr auto auto;min-width:0}
+  canvas{width:100%;height:100%;display:block}
+  .strip{border-top:1px solid var(--line);padding:8px 16px 12px;background:var(--panel)}
+  .striplabel{color:var(--dim);font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+  .bars{position:relative;height:52px}
+  .bar{position:absolute;height:16px;border-radius:3px;display:flex;align-items:center;
+    padding:0 6px;font-size:10px;color:#04070a;font-weight:600;white-space:nowrap;overflow:hidden}
+  .overlap{position:absolute;top:0;bottom:0;background:rgba(255,179,64,.16);
+    border-left:1px solid var(--warn);border-right:1px solid var(--warn)}
+  .overlaplabel{position:absolute;top:-2px;font-size:10px;color:var(--warn)}
+  .playhead{position:absolute;top:0;bottom:0;width:1px;background:#fff;opacity:.75}
+  .controls{border-top:1px solid var(--line);padding:8px 16px;display:flex;gap:12px;align-items:center;background:var(--panel)}
+  button{background:#16202c;color:var(--ink);border:1px solid var(--line);border-radius:4px;
+    padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
+  button:hover{border-color:var(--dim)}
+  input[type=range]{flex:1;accent-color:var(--scope)}
+  .t{color:var(--dim);font-variant-numeric:tabular-nums;min-width:112px}
+  .log{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:10px 12px}
+  .ev{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:2px 0;color:var(--dim);font-size:11px}
+  .ev.on{color:var(--ink)}
+  .ev .ty{color:#7fa8c9}
+  .beat{margin:6px 0;padding:7px 9px;border-left:2px solid var(--warn);background:#141a22;
+    color:var(--ink);font-size:11.5px}
+  .beat.objection{border-color:var(--flow)} .beat.narrowed{border-color:var(--scope)}
+  .beat.loss{border-color:var(--bad)}
+  .legend{display:flex;gap:14px;font-size:10px;color:var(--dim);margin-top:6px}
+  .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+</style>
+
+<header>
+  <h1>SEPARATION</h1>
+  <span class="sub" id="meta">loading…</span>
+  <span class="sub" id="overlapline"></span>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <canvas id="scope"></canvas>
+    <div class="strip">
+      <div class="striplabel">in flight — overlapping bars mean two agents were thinking at the same time</div>
+      <div class="bars" id="bars"></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--approach)"></i>APPROACH</span>
+        <span><i class="sw" style="background:var(--flow)"></i>FLOW</span>
+        <span><i class="sw" style="background:var(--warn);opacity:.5"></i>both open at once</span>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="play">▶ play</button>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <span class="t" id="clock">t+0.0s</span>
+      <button id="jump">jump to the objection</button>
+    </div>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+/**
+ * Renders a RECORDED trace. Everything drawn here is a readout of fixtures/trace.json — the turn
+ * bars come from turn.started/turn.ended, the blips from world.snapshot. Nothing is illustrated.
+ * The interesting assertion (do the bars actually overlap?) is a test, not a drawing.
+ */
+const NM_PER_PX = 0.062, SEP_NM = 3
+let trace = null, playing = false, t = 0, span = 1, raf = 0
+
+const $ = (id) => document.getElementById(id)
+const cv = $("scope"), ctx = cv.getContext("2d")
+const COLOR = { APPROACH: "#4da3ff", FLOW: "#c77dff", DEPARTURE: "#ffb340" }
+
+fetch("../fixtures/trace.json").then(r => r.json()).then(init)
+  .catch(() => fetch("trace.json").then(r => r.json()).then(init))
+
+function init(data) {
+  trace = data
+  const last = trace.frames.at(-1)
+  span = last ? last.tSim : 1
+  $("meta").textContent =
+    `${trace.meta.scenario} · ${trace.meta.frames} frames · ${trace.meta.turns} turns · ${trace.meta.events} events`
+
+  const ov = overlaps()
+  $("overlapline").innerHTML = ov.length
+    ? `· <span style="color:var(--warn)">${ov.length} overlapping turn pair — ${Math.round(ov[0].ms)}ms of simultaneous deliberation</span>`
+    : `· no simultaneous turns`
+
+  drawBars(ov); renderLog(); resize(); draw()
+}
+
+/** Same computation as TraceWriter.overlaps, so the picture and the test agree. */
+function overlaps() {
+  const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(t => t.closedMs ?? t.openedMs))
+  const cl = (x) => x.closedMs ?? end, out = []
+  for (let i = 0; i < trace.turns.length; i++)
+    for (let j = i + 1; j < trace.turns.length; j++) {
+      const a = trace.turns[i], b = trace.turns[j]
+      if (a.participant === b.participant) continue
+      const s = Math.max(a.openedMs, b.openedMs), e = Math.min(cl(a), cl(b))
+      if (e > s) out.push({ a, b, ms: e - s, from: s, to: e })
+    }
+  return out
+}
+
+function drawBars(ov) {
+  const host = $("bars"); host.innerHTML = ""
+  const turns = trace.turns
+  if (!turns.length) return
+  const t0 = Math.min(...turns.map(x => x.openedMs))
+  const end = Math.max(trace.meta.generatedAtTSim, ...turns.map(x => x.closedMs ?? x.openedMs))
+  const w = end - t0 || 1
+  const pct = (ms) => ((ms - t0) / w) * 100
+
+  for (const o of ov) {
+    const band = document.createElement("div")
+    band.className = "overlap"
+    band.style.left = pct(o.from) + "%"
+    band.style.width = (pct(o.to) - pct(o.from)) + "%"
+    host.appendChild(band)
+    const lab = document.createElement("div")
+    lab.className = "overlaplabel"
+    lab.style.left = pct(o.from) + "%"
+    lab.textContent = `${Math.round(o.ms)}ms both thinking`
+    host.appendChild(lab)
+  }
+
+  const rows = [...new Set(turns.map(x => x.participant))]
+  turns.forEach((x) => {
+    const el = document.createElement("div")
+    el.className = "bar"
+    el.style.left = pct(x.openedMs) + "%"
+    el.style.width = Math.max(1.5, pct(x.closedMs ?? end) - pct(x.openedMs)) + "%"
+    el.style.top = (16 + rows.indexOf(x.participant) * 22) + "px"
+    el.style.background = COLOR[x.participant] ?? "#7fa8c9"
+    el.textContent = x.participant
+    el.title = `${x.turnId} — ${x.openedMs.toFixed(0)} → ${(x.closedMs ?? end).toFixed(0)}ms`
+    host.appendChild(el)
+  })
+
+  const ph = document.createElement("div")
+  ph.className = "playhead"; ph.id = "ph"
+  host.appendChild(ph)
+}
+
+function renderLog() {
+  const host = $("log"); host.innerHTML = ""
+  for (const b of trace.beats) {
+    const el = document.createElement("div")
+    el.className = "beat " + b.kind
+    el.textContent = `${b.kind.toUpperCase()} — ${b.text}`
+    host.appendChild(el)
+  }
+  for (const e of trace.events.slice(0, 400)) {
+    const el = document.createElement("div")
+    el.className = "ev"; el.dataset.t = e.tSim
+    el.innerHTML = `<span>${(e.tSim / 1000).toFixed(1)}s</span><span><span class="ty">${e.type}</span> ${e.summary ?? ""}</span>`
+    host.appendChild(el)
+  }
+}
+
+function frameAt(ms) {
+  let best = trace.frames[0]
+  for (const f of trace.frames) { if (f.tSim * 1000 <= ms) best = f; else break }
+  return best
+}
+
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect()
+  cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+}
+addEventListener("resize", () => { resize(); draw() })
+
+function draw() {
+  if (!trace) return
+  const w = cv.width / devicePixelRatio, h = cv.height / devicePixelRatio
+  const cx = w / 2, cy = h / 2, scale = Math.min(w, h) / (40 / NM_PER_PX) * 12
+
+  ctx.fillStyle = "#080b10"; ctx.fillRect(0, 0, w, h)
+  ctx.strokeStyle = "#131c26"; ctx.lineWidth = 1
+  for (let r = 5; r <= 25; r += 5) {
+    ctx.beginPath(); ctx.arc(cx, cy, r * scale, 0, Math.PI * 2); ctx.stroke()
+  }
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke()
+
+  const f = frameAt(t)
+  if (!f) return
+  const px = (a) => [cx + a.x * scale, cy - a.y * scale]
+
+  // trails
+  ctx.lineWidth = 1
+  for (const tr of f.tracks) {
+    ctx.beginPath()
+    let started = false
+    for (const pf of trace.frames) {
+      if (pf.tSim > f.tSim || pf.tSim < f.tSim - 60) continue
+      const a = pf.tracks.find(x => x.callsign === tr.callsign); if (!a) continue
+      const [X, Y] = px(a)
+      started ? ctx.lineTo(X, Y) : (ctx.moveTo(X, Y), started = true)
+    }
+    ctx.strokeStyle = "rgba(47,240,138,.22)"; ctx.stroke()
+  }
+
+  // separation ring + the pair's live distance
+  if (f.tracks.length >= 2) {
+    const [a, b] = f.tracks
+    const dx = a.x - b.x, dy = a.y - b.y
+    const range = Math.hypot(dx, dy), dz = Math.abs(a.altFt - b.altFt)
+    const lost = range < SEP_NM && dz < 1000
+    for (const tr of [a, b]) {
+      const [X, Y] = px(tr)
+      ctx.beginPath(); ctx.arc(X, Y, (SEP_NM / 2) * scale, 0, Math.PI * 2)
+      ctx.strokeStyle = lost ? "rgba(255,92,92,.55)" : "rgba(61,82,102,.5)"
+      ctx.setLineDash([3, 4]); ctx.stroke(); ctx.setLineDash([])
+    }
+    const [ax, ay] = px(a), [bx, by] = px(b)
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by)
+    ctx.strokeStyle = lost ? "#ff5c5c" : "#22303d"; ctx.stroke()
+    ctx.fillStyle = lost ? "#ff5c5c" : "#5d7186"; ctx.font = "11px ui-monospace,monospace"
+    ctx.fillText(`${range.toFixed(2)} NM · Δ${dz.toFixed(0)} ft${lost ? "  SEPARATION LOST" : ""}`,
+      (ax + bx) / 2 + 8, (ay + by) / 2 - 6)
+  }
+
+  for (const tr of f.tracks) {
+    const [X, Y] = px(tr)
+    ctx.fillStyle = "#2ff08a"
+    ctx.fillRect(X - 3, Y - 3, 6, 6)
+    ctx.fillStyle = "#c8d6e5"; ctx.font = "11px ui-monospace,monospace"
+    ctx.fillText(tr.callsign, X + 9, Y - 2)
+    ctx.fillStyle = "#5d7186"
+    ctx.fillText(`${(tr.altFt / 100).toFixed(0)}  ${tr.groundspeedKt}kt`, X + 9, Y + 10)
+  }
+
+  ctx.fillStyle = "#5d7186"; ctx.font = "10px ui-monospace,monospace"
+  ctx.fillText("5 NM rings · 3 NM separation ring per aircraft", 12, h - 12)
+
+  $("clock").textContent = `t+${(t / 1000).toFixed(1)}s`
+  $("scrub").value = String((t / (span * 1000)) * 1000)
+  const ph = $("ph")
+  if (ph && trace.turns.length) {
+    const t0 = Math.min(...trace.turns.map(x => x.openedMs))
+    const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(x => x.closedMs ?? x.openedMs))
+    ph.style.left = Math.max(0, Math.min(100, ((t - t0) / (end - t0)) * 100)) + "%"
+  }
+  for (const el of document.querySelectorAll(".ev")) {
+    el.classList.toggle("on", Number(el.dataset.t) <= t)
+  }
+}
+
+$("play").onclick = () => {
+  playing = !playing
+  $("play").textContent = playing ? "❚❚ pause" : "▶ play"
+  if (playing) loop()
+}
+function loop() {
+  if (!playing) return
+  t += 400
+  if (t > span * 1000) { t = 0 }
+  draw(); raf = requestAnimationFrame(loop)
+}
+$("scrub").oninput = (e) => { playing = false; $("play").textContent = "▶ play"; t = (e.target.value / 1000) * span * 1000; draw() }
+$("jump").onclick = () => {
+  const b = trace.beats.find(x => x.kind === "objection") ?? trace.beats[0]
+  if (b) { playing = false; $("play").textContent = "▶ play"; t = b.tSim; draw() }
+}
+</script>

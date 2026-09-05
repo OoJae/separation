@@ -1,0 +1,50 @@
+{
+ "generated": {
+  "seeds": 200,
+  "arms": [
+   "world-waits",
+   "concurrent-no-interlock",
+   "concurrent-interlock"
+  ]
+ },
+ "rows": [
+  {
+   "arm": "world-waits",
+   "runs": 200,
+   "separationLosses": 100,
+   "jointHazardsCaught": 0,
+   "contentDiffers": 0,
+   "windowMissed": 0,
+   "differsOnHazard": 0,
+   "differsOnSafe": 0,
+   "lossOnHazard": 100
+  },
+  {
+   "arm": "concurrent-no-interlock",
+   "runs": 200,
+   "separationLosses": 100,
+   "jointHazardsCaught": 0,
+   "contentDiffers": 0,
+   "windowMissed": 0,
+   "differsOnHazard": 0,
+   "differsOnSafe": 0,
+   "lossOnHazard": 100
+  },
+  {
+   "arm": "concurrent-interlock",
+   "runs": 200,
+   "separationLosses": 0,
+   "jointHazardsCaught": 100,
+   "contentDiffers": 100,
+   "windowMissed": 0,
+   "differsOnHazard": 100,
+   "differsOnSafe": 0,
+   "lossOnHazard": 0
+  }
+ ],
+ "regime": {
+  "hazardSeeds": 100,
+  "safeSeeds": 100
+ },
+ "note": "Arms vary the ARCHITECTURE, not the model. One deterministic decision policy across all three; seeds vary scenario conditions only."
+}

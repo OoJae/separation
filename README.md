@@ -134,6 +134,52 @@ The seam is also **non-invasive**: the default policy reproduces the previous be
 all 247 tests pass unchanged with it installed. If that were not true, every determinism claim in
 Phases 2–5 would be suspect.
 
+### See it
+
+`viewer/index.html` replays a recorded run — radar scope, event log, and an **in-flight strip**
+where one bar per controller spans each turn's open→close.
+
+**When two bars overlap, two agents were thinking at the same time.** That is the whole thesis as a
+picture, and it is a computed readout of `turn.started`/`turn.ended`, not a drawing: the same
+`TraceWriter.overlaps()` the viewer calls is asserted in `tests/instrument/trace.test.ts`, so the
+picture cannot claim something the run did not do. In the committed trace, APPROACH and FLOW
+overlap for **2637 ms**.
+
+```bash
+npm run record:trace     # replays from the committed cache, zero calls
+open viewer/index.html   # "jump to the objection" lands on the money shot
+```
+
+### The ablation — 3 arms × 200 seeds, 600 runs, zero tokens
+
+One deterministic decision policy across all three arms, so the only variable is the architecture.
+
+| arm | sep losses | joint hazards caught | content differs |
+|---|---|---|---|
+| world-waits *(sequential-equivalent)* | 200 | 0 | **0 (by construction)** |
+| concurrent, validate-at-commit only | 200 | 0 | 0 |
+| **concurrent + interlock** | **0** | **100** | **100** |
+
+*Column three is why it is not a pipeline.* It is 0 in the sequential arm **by construction** — no
+peer intent exists while a clearance is being formed, so nothing can change what is issued.
+
+*Column two is why it is not a solver.* The joint hazard is invisible to the sequential arm **and**
+to validate-at-commit, and visible only to the airlock.
+
+**And the airlock is selective, which matters more than the totals.** Half the seeds draw a shallow
+descent that Phase 2 established is safe. A mechanism that altered every clearance would be
+indistinguishable from one that understood nothing:
+
+```
+arm                        narrowed / hazardous    narrowed / safe
+concurrent + interlock            100 / 100              0 / 100
+```
+
+**The honest bound:** these arms vary the *architecture*, not the model. The decision policy is
+fixed and deterministic across all three — which is what makes the difference attributable, and
+also means this measures what the architecture changes, not what a model would have chosen
+differently. Seeds vary scenario conditions only.
+
 ### Why several Mozaik surfaces are unused
 
 Phase 7 was scoped as "full surface coverage". We audited seven candidates adversarially and
@@ -251,6 +297,7 @@ takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 | 5 | Live pilots, private constraints | ✅ |
 | 6 | RETRACE — schedule exploration | ✅ |
 | 7 | Truth pass — zero new surfaces | ✅ |
+| 8 | Viewer + ablation | ✅ |
 
 ## Reproduce
 

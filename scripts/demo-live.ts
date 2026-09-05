@@ -13,14 +13,17 @@ import { InferenceCache } from "../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner"
 import { mimoFromEnv } from "../src/infrastructure/inference/mimo"
 import { seatFor } from "../src/infrastructure/inference/model-roster"
+import { OPENING, controllerBriefing } from "../src/scenarios/briefing"
 import { TurnScheduler } from "../src/infrastructure/scheduling/turn-scheduler"
 import { ControllerEvent, createController, type ObjectionPayload } from "../src/participants/controller"
 import { IdentityBook } from "../src/participants/identity-book"
 import { InterlockDesk } from "../src/participants/interlock-desk"
 import { StandingBroker } from "../src/participants/standing-broker"
 import { HORIZON_S, INITIAL, WINDOWS, narrowingCandidatesForA } from "../src/scenarios/braid-2"
+import { TraceWriter } from "../src/instrument/trace-writer"
 import { OutboxDispatcher } from "../src/support/outbox"
 import { SystemClock } from "../src/support/ports"
+import { writeFileSync, mkdirSync } from "node:fs"
 
 class LiveState extends RuntimeState {}
 
@@ -43,6 +46,7 @@ const runner = new LiveInferenceRunner({
 const { initializeRuntime, join, runLoop, sendEvent } = defineRuntime<LiveState>()
 const outbox = new OutboxDispatcher((e, s) => sendEvent(e, s), clock)
 const identity = new IdentityBook()
+const tracer = new TraceWriter({ clock, nameOf: (id) => identity.nameOf(id), scenario: "braid-2 money shot" })
 const scheduler = new TurnScheduler({ runLoop, outbox, clock, identity })
 const intents = new IntentRegistry()
 const world = () => [...INITIAL]
@@ -57,34 +61,18 @@ const log: string[] = []
 const inflightAtObjection: string[][] = []
 const say = (line: string) => { log.push(line); console.log(line) }
 
-const instructionFor = (position: "APPROACH" | "FLOW") => {
-	const seat = seatFor(position)
-	return `You are the ${position} controller in a busy TRACON sector. Your authority: ${seat.authority}.
-Your objective: ${seat.objective}
-
-Traffic: AAL221 is at 9000 ft descending toward the runway. SWA455 is at 6000 ft on a converging
-track. Both at 250 knots. You share authority over AAL221 with another controller who has a
-DIFFERENT objective, so announce your intent before you commit.
-
-Work in this order, one tool per step:
-  1. assess_traffic
-  2. probe_feasible for the aircraft you intend to move
-  3. propose_clearance  (announce it — peers may object)
-  4. commit_clearance   (your commit may be narrowed by a peer before it executes)
-Keep your reasoning to one short sentence per step.`
-}
 
 const common = {
 	world, generation: () => 1, nowSec: () => 0, outbox, horizonSec: HORIZON_S, intents,
 }
 const approach = createController({
-	...common, position: "APPROACH", instruction: instructionFor("APPROACH"),
+	...common, position: "APPROACH", instruction: controllerBriefing("APPROACH"),
 	participantId: () => approach.getId(),
 	holdsStandingOver: (cs) => broker.holds("APPROACH", cs),
 	objectTo: () => null,
 })
 const flow = createController({
-	...common, position: "FLOW", instruction: instructionFor("FLOW"),
+	...common, position: "FLOW", instruction: controllerBriefing("FLOW"),
 	participantId: () => flow.getId(),
 	holdsStandingOver: (cs) => broker.holds("FLOW", cs),
 	objectTo: (intent) =>
@@ -100,6 +88,7 @@ const tap: SituationHandler = {
 	processor: {
 		apply({ event }) {
 			scheduler.observe(event)
+			tracer.observe(event)
 			const name = identity.nameOf(event.producerId)
 			if (event.type === ControllerEvent.INTENT_FORMING) {
 				const p = event.payload as { controller: string; callsign: string; clearanceId: string }
@@ -130,8 +119,8 @@ console.log(`LIVE — ${mimo.specification.name}, budget ${calls} calls\n`)
 console.log(`  standing over AAL221: ${broker.holdersOver("AAL221").join(", ")}\n`)
 
 const template = { model: mimo.specification.name, maxOutputTokens: seatFor("APPROACH").maxOutputTokens }
-scheduler.begin(approach, "Sequence AAL221 for the approach.", { ...template, tools: approach.getTools() }, desk.handler())
-scheduler.begin(flow, "Protect the metering interval at CARDL.", { ...template, tools: flow.getTools() }, desk.handler())
+scheduler.begin(approach, OPENING.APPROACH, { ...template, tools: approach.getTools() }, desk.handler())
+scheduler.begin(flow, OPENING.FLOW, { ...template, tools: flow.getTools() }, desk.handler())
 
 /**
  * Exit on SETTLEMENT, not on a wall-clock sleep.
@@ -175,5 +164,15 @@ for (const d of desk.log()) {
 }
 const stats = cache.stats()
 console.log(`  live calls: ${budget.used()}   cache ${stats.hits} hit / ${stats.misses} miss`)
+
+const trace = tracer.finish()
+const overlaps = TraceWriter.overlaps(trace)
+mkdirSync("fixtures", { recursive: true })
+writeFileSync("fixtures/trace.json", JSON.stringify(trace, null, 1))
+console.log(`\n  trace       : ${trace.meta.turns} turns, ${trace.meta.events} events, ${trace.beats.length} beats`)
+console.log(`  OVERLAPPING TURNS: ${overlaps.length}` + (overlaps.length > 0
+	? `  (${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${o.ms}ms`).join(", ")})`
+	: "  — no two agents were ever thinking at once"))
+console.log(`  wrote fixtures/trace.json`)
 console.log(`  latencies:  ${runner.log().filter((c) => !c.cached).map((c) => `${c.latencyMs}ms`).join(", ")}`)
 process.exit(overlapped ? 0 : 1)
