@@ -3,6 +3,8 @@ export const WorldEvent = {
 	SNAPSHOT: "world.snapshot",
 	PAIR_CLOSURE: "pair.closure",
 	SEPARATION_LOST: "separation.lost",
+	/** A committed clearance, on its way to the metal. The world has always listened for this. */
+	COMMAND_ISSUED: "actuator.command.issued",
 	COMMAND_REJECTED: "world.command.rejected",
 	COMMAND_ACCEPTED: "world.command.accepted",
 	LEASE_GRANTED: "lease.granted",

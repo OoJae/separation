@@ -45,13 +45,26 @@ export type RefusalRule = {
 	readonly refuseDescentAtOrBelowFt?: number
 	/** Refuse a turn of at least this many degrees. */
 	readonly refuseTurnOfAtLeastDeg?: number
+	/**
+	 * Refuse a speed reduction to at or below this.
+	 *
+	 * Without this an aircraft whose constraint is literally `wantsShortestPath` could refuse a
+	 * 30-degree turn costing 3.5 track miles while having to accept a speed reduction costing it
+	 * two and a half MINUTES — the rule vocabulary could not express the constraint the sheet
+	 * declared.
+	 */
+	readonly refuseSpeedBelowKt?: number
 	readonly reason: string
 }
 
 /** Does this sheet refuse the given command? Pure — the pilot agent explains it in prose. */
 export function refusalFor(
 	sheet: PilotSheet,
-	command: { readonly targetAltFt?: number; readonly turnMagnitudeDeg?: number },
+	command: {
+		readonly targetAltFt?: number
+		readonly turnMagnitudeDeg?: number
+		readonly targetGroundspeedKt?: number
+	},
 ): RefusalRule | null {
 	for (const rule of sheet.refuses) {
 		if (rule.refuseDescentAtOrBelowFt !== undefined
@@ -60,6 +73,9 @@ export function refusalFor(
 		if (rule.refuseTurnOfAtLeastDeg !== undefined
 			&& command.turnMagnitudeDeg !== undefined
 			&& Math.abs(command.turnMagnitudeDeg) >= rule.refuseTurnOfAtLeastDeg) return rule
+		if (rule.refuseSpeedBelowKt !== undefined
+			&& command.targetGroundspeedKt !== undefined
+			&& command.targetGroundspeedKt <= rule.refuseSpeedBelowKt) return rule
 	}
 	return null
 }

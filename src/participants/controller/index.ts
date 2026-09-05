@@ -2,6 +2,7 @@ import { SituationSpecification, createAgent } from "@mozaik-ai/core"
 import type { Agent, SituationContext, SituationHandler } from "@mozaik-ai/core"
 import type { Callsign } from "../../domain/airspace/aircraft-state"
 import type { OutboxDispatcher } from "../../support/outbox"
+import { PilotEvent, type UnablePayload } from "../../events/pilot-events"
 import { ControllerEvent, controllerTools, type ControllerToolDeps } from "./tools"
 
 export type ObjectionPayload = {
@@ -21,6 +22,13 @@ export type ControllerDeps = ControllerToolDeps & {
 	/** The objection policy — deterministic in Phase 4's synthetic tests, a live model later. */
 	readonly objectTo: (intent: { callsign: Callsign; command: Record<string, number>; plannedMarginNm: number; by: string }) =>
 		{ reason: string; suggestTargetAltFt?: number } | null
+	/**
+	 * Begin a fresh turn for this controller. Supplied by the TurnScheduler.
+	 *
+	 * Optional so the many synthetic tests that never issue a clearance need not wire it; when it
+	 * is absent a refusal is still observed and counted, it just cannot trigger a re-plan.
+	 */
+	readonly beginTurn?: (agent: Agent, message: string) => void
 }
 
 /**
@@ -67,12 +75,50 @@ export function createController(deps: ControllerDeps): Agent {
 		},
 	}
 
+	/**
+	 * A pilot refused a clearance this controller holds standing over.
+	 *
+	 * THIS IS WHAT MAKES GUESSING EXPENSIVE. `pilot.unable` had exactly two consumers before —
+	 * both of them display code — so a crew could refuse a clearance and no controller would ever
+	 * learn of it. A refusal was, in the running system, indistinguishable from acceptance.
+	 *
+	 * Now it costs a whole turn: the controller must plan again, having already spent the window
+	 * on a clearance that will not be flown. That is the measured alternative to spending ~13 s
+	 * asking first, and it is why `query_pilot` is a judgement rather than a flourish.
+	 */
+	class WhenPilotRefuses extends SituationSpecification {
+		isSatisfiedBy({ event }: SituationContext): boolean {
+			if (event.type !== PilotEvent.UNABLE) return false
+			const payload = event.payload as { callsign?: string }
+			return typeof payload.callsign === "string" && deps.holdsStandingOver(payload.callsign)
+		}
+	}
+
+	const refusalHandler: SituationHandler = {
+		specification: new WhenPilotRefuses(),
+		processor: {
+			// Synchronous and never throws — a throwing processor starves the bus (#15).
+			apply({ event }) {
+				if (self === null || deps.beginTurn === undefined) return
+				const p = event.payload as Partial<UnablePayload>
+				if (typeof p.callsign !== "string" || typeof p.reason !== "string") return
+				deps.beginTurn(self, [
+					`${p.callsign} is UNABLE your clearance ${p.clearanceId ?? ""}: "${p.reason}".`,
+					p.counterProposal ? `They propose instead: ${p.counterProposal}.` : ``,
+					``,
+					`That clearance will not be flown, and the window you spent on it is gone. Plan`,
+					`again. You may query_pilot ${p.callsign} first if their constraint is not obvious.`,
+				].filter((l) => l !== ``).join("\n"))
+			},
+		},
+	}
+
 	self = createAgent({
 		name: deps.position,
 		capabilities: ["inference", "standing"],
 		instruction: deps.instruction,
 		tools: controllerTools(deps),
-		handlers: [objectHandler],
+		handlers: [objectHandler, refusalHandler],
 	})
 	return self
 }

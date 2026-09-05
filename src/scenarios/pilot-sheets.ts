@@ -42,7 +42,13 @@ export const PILOT_SHEETS: readonly PilotSheet[] = [
 			detail: "a passenger is deteriorating; we need the shortest track to the runway",
 			wantsShortestPath: true,
 		},
-		refuses: [{ refuseTurnOfAtLeastDeg: 25, reason: "medical on board, minimise track miles" }],
+		refuses: [
+			{ refuseTurnOfAtLeastDeg: 25, reason: "medical on board, minimise track miles" },
+			// A speed reduction costs this aircraft minutes. Refusing it is the same constraint as
+			// refusing a wide vector, and until the rule vocabulary could say so the sheet declared
+			// `wantsShortestPath` while being unable to act on it.
+			{ refuseSpeedBelowKt: 220, reason: "medical on board, unable to accept a delay" },
+		],
 	},
 	{
 		/**

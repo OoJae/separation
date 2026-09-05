@@ -27,6 +27,7 @@ import { IdentityBook } from "../src/participants/identity-book"
 import { InterlockDesk } from "../src/participants/interlock-desk"
 import { StandingBroker } from "../src/participants/standing-broker"
 import { WorldParticipant } from "../src/participants/world"
+import { WorldEvent } from "../src/events/world-events"
 import { OPENING, controllerBriefing } from "../src/scenarios/briefing"
 import { HORIZON_S, INITIAL, WINDOWS, clearanceA, clearanceB, narrowingCandidatesForA } from "../src/scenarios/braid-2"
 import { OutboxDispatcher } from "../src/support/outbox"
@@ -92,6 +93,7 @@ const flow = createController({
 			: null,
 })
 
+const actuated: string[] = []
 const tap: SituationHandler = {
 	specification: new (class extends SituationSpecification {
 		isSatisfiedBy(_: SituationContext) { return true }
@@ -100,6 +102,11 @@ const tap: SituationHandler = {
 		apply({ event }) {
 			scheduler.observe(event)
 			tracer.observe(event)
+			// Did a controller's decision actually reach the metal, or only the transcript?
+			if (event.type === WorldEvent.COMMAND_ISSUED) {
+				const p = event.payload as { callsign?: string }
+				actuated.push(String(p.callsign))
+			}
 			if (event.type === ControllerEvent.OBJECTION_RAISED) {
 				const p = event.payload as ObjectionPayload
 				desk.object({ by: p.by, clearanceId: p.clearanceId, reason: p.reason, suggestTargetAltFt: p.suggestTargetAltFt })
@@ -123,15 +130,26 @@ scheduler.begin(flow, OPENING.FLOW, { ...template, tools: flow.getTools() }, des
 
 await new Promise((r) => setTimeout(r, 400))
 
-// Fly 380 simulated seconds. The aircraft are deterministic, so there is nothing to learn from
-// watching them at 1x; the controllers keep running on the real bus the whole time.
+/**
+ * Fly 380 simulated seconds at roughly 10x real time.
+ *
+ * This used to run at ~400x, finishing the whole encounter in about one real second — which meant
+ * the controllers, thinking on the wall clock for tens of seconds, could never commit anything
+ * while the world was still moving. Their clearances were therefore recorded but never flown, and
+ * the trace showed a hardcoded BRAID-2 instead of the decisions the models actually made.
+ *
+ * `WorldParticipant` subscribes to `actuator.command.issued`, so at this pace a committed
+ * clearance genuinely reaches the metal. The scripted BRAID-2 pair is still applied — it is the
+ * scenario's own traffic, and the hazard has to exist for anyone to catch it — but a controller's
+ * commit now lands on top of it, and the report says whether one did.
+ */
 const applied = new Set<string>()
 const clearances = [clearanceA(), clearanceB()]
 const TOTAL_TICKS = HORIZON_S * 100
 let tick = 0
 await new Promise<void>((resolve) => {
 	const timer = setInterval(() => {
-		for (let i = 0; i < 400 && tick < TOTAL_TICKS; i++) {
+		for (let i = 0; i < 10 && tick < TOTAL_TICKS; i++) {
 			tick++
 			for (const c of clearances) {
 				if (tick >= c.effectiveTick && !applied.has(c.id)) {
@@ -161,6 +179,9 @@ mkdirSync("fixtures", { recursive: true })
 writeFileSync("fixtures/trace.json", JSON.stringify(trace))
 
 console.log(`  frames : ${trace.meta.frames}   turns: ${trace.meta.turns}   events: ${trace.meta.events}   beats: ${trace.beats.length}`)
+console.log(`  actuated  : ${actuated.length === 0
+	? "NO controller command reached the metal"
+	: `${actuated.length} controller command(s) flown -> ${[...new Set(actuated)].join(", ")}`}`)
 console.log(`  OVERLAPPING TURNS: ${overlaps.length}` + (overlaps.length > 0
 	? `  ${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${Math.round(o.ms)}ms`).join(", ")}`
 	: "  — no two agents were ever thinking at once"))

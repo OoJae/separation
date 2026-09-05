@@ -3,36 +3,14 @@ import type { Agent, SituationContext, SituationHandler, Tool } from "@mozaik-ai
 import type { Callsign } from "../../domain/airspace/aircraft-state"
 import { refusalFor, type PilotSheet } from "../../domain/disclosure/pilot-sheet"
 import type { OutboxDispatcher } from "../../support/outbox"
+import { PilotEvent, type QueryPayload, type ReplyPayload, type UnablePayload } from "../../events/pilot-events"
 
-export const PilotEvent = {
-	QUERY: "controller.query",
-	REPLY: "pilot.reply",
-	UNABLE: "pilot.unable",
-	CLEARANCE_ISSUED: "clearance.issued",
-} as const
+export { PilotEvent }
+export type { QueryPayload, ReplyPayload, UnablePayload }
 
-export type QueryPayload = {
-	readonly queryId: string
-	readonly toCallsign: Callsign
-	readonly fromController: string
-	readonly question: string
-}
 
-export type ReplyPayload = {
-	readonly queryId: string
-	readonly callsign: Callsign
-	readonly toController: string
-	readonly text: string
-	/** Structured claims the DisclosureLedger can actually test. Prose alone is not evidence. */
-	readonly claims: readonly { readonly field: "fuelMg"; readonly value: number }[]
-}
 
-export type UnablePayload = {
-	readonly callsign: Callsign
-	readonly clearanceId: string
-	readonly reason: string
-	readonly counterProposal: string | null
-}
+
 
 export type PilotDeps = {
 	readonly sheet: PilotSheet
@@ -72,9 +50,15 @@ export function createPilot(deps: PilotDeps): Agent {
 				required: ["fuelKg"], additionalProperties: false,
 			},
 			strict: false,
-			invoke: async (args: { fuelKg: number; remark?: string }) => ({
+			invoke: async (args: { fuelKg: number; remark?: string }) => {
+				replyWith(
+					`${sheet.callsign} reports ${args.fuelKg} kg${args.remark ? `. ${args.remark}` : ""}`,
+					[{ field: "fuelMg", value: Math.round(args.fuelKg * 1_000_000) }],
+				)
+				return ({
 				reported: true, fuelKg: args.fuelKg, remark: args.remark ?? null,
-			}),
+			})
+			},
 		},
 		{
 			type: "function",
@@ -86,9 +70,12 @@ export function createPilot(deps: PilotDeps): Agent {
 				required: ["detail"], additionalProperties: false,
 			},
 			strict: false,
-			invoke: async (args: { detail: string; wantsShortestPath?: boolean }) => ({
-				reported: true, detail: args.detail, wantsShortestPath: args.wantsShortestPath ?? false,
-			}),
+			invoke: async (args: { detail: string; wantsShortestPath?: boolean }) => {
+				replyWith(args.detail, [])
+				return {
+					reported: true, detail: args.detail, wantsShortestPath: args.wantsShortestPath ?? false,
+				}
+			},
 		},
 		{
 			type: "function",
@@ -114,6 +101,27 @@ export function createPilot(deps: PilotDeps): Agent {
 		},
 	]
 
+	/**
+	 * The query this crew is currently answering.
+	 *
+	 * Held in the closure rather than asked of the model. The prompt does tell the crew its query
+	 * id, but correlating a parked controller turn to a reply is bookkeeping, not judgement — and
+	 * relying on a model to echo an identifier back verbatim is exactly the kind of thing that
+	 * works in a demo and fails in a run.
+	 */
+	let answering: { readonly queryId: string; readonly toController: string } | null = null
+
+	/** Publish the reply that settles the controller's parked turn. */
+	const replyWith = (text: string, claims: ReplyPayload["claims"]): void => {
+		if (self === null || answering === null) return
+		const payload: ReplyPayload = {
+			queryId: answering.queryId, callsign: sheet.callsign,
+			toController: answering.toController, text, claims,
+		}
+		deps.outbox.publish(PilotEvent.REPLY, self.getId(), payload)
+		answering = null
+	}
+
 	/** Answer a controller's question. The sheet is in scope here and only here. */
 	class WhenQueried extends SituationSpecification {
 		isSatisfiedBy({ event }: SituationContext): boolean {
@@ -129,6 +137,7 @@ export function createPilot(deps: PilotDeps): Agent {
 				// Synchronous and never throws — a throwing processor starves the bus (#15).
 				if (self === null) return
 				const q = event.payload as QueryPayload
+				answering = { queryId: q.queryId, toController: q.fromController }
 				deps.beginTurn(self, [
 					`${q.fromController} asks: "${q.question}"`,
 					``,

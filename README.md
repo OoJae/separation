@@ -55,48 +55,68 @@ rewritten call, so it can reason about having been narrowed.
 
 `npm run demo:live` replays this from a committed cache with **zero API calls and no key**.
 
-### Geometry loses to socially-obtained information — and the live model declined to ask
+### Geometry loses to socially-obtained information
 
-The sharpest answer to *"what did the language models decide that a solver could not?"* is that the
-decisive fact is private and must be **asked for**. The mechanism works and is proven in
-`tests/pilot/social-information.test.ts`: the controller queries, the pilot answers from its sheet,
-and the constraint lands in the controller's own context — a fact that exists nowhere in the world,
-no snapshot, and no `FeasibleSet`.
-
-**What the live model actually did is another matter, and we report it rather than stage around it.**
+The sharpest answer to *"what did the language models decide that a solver could not?"* The
+FeasibleSet offers **18 separation-safe options** for the medical aircraft. Six of them will be
+refused by the crew — including the one with the widest margin — and **nothing the controller can
+see says which.** Not the world, not a snapshot, not the FeasibleSet.
 
 ```
-  widest margin : AAL77/turn-right-30    4.17 NM, 3.5 extra track miles
-  shortest track: AAL77/descend-4000     3.23 NM, 0.0 extra track miles
-  ordering      : lexicographic-by-optionId (semantically meaningless)
-
-  Both are separation-safe. Geometry cannot choose between them.
+  Of those 18 separation-safe options, 6 would be REFUSED by the crew:
+    slow-to-180, slow-to-210, turn-left-30, turn-left-30-expedite,
+    turn-right-30, turn-right-30-expedite
+  The widest-margin option is among them.
 
 APPROACH -> assess_traffic -> probe_feasible -> propose_clearance -> commit_clearance
-                                        (never asked; AAL77's medical never entered the decision)
+                                     (never asked; AAL77's medical never entered the decision)
 ```
 
-Told explicitly that it *may* `query_pilot` and what that costs, the model committed a clearance
-from geometry alone. It took the wide vector — which is exactly the option the scenario is built to
-punish, since AAL77 is carrying a deteriorating passenger and needs the shortest track. The model
-paid nothing for information and got it wrong.
+**Asking is not free**, which is what makes it a judgement. `query_pilot`'s `invoke()` awaits the
+reply and `FunctionCallState.run` awaits the tool, so the controller's whole turn is parked for the
+length of a pilot's turn — ~13 s against a ~44 s window. Guessing is not free either: a refused
+clearance is not flown, and the controller must plan again — a whole extra turn, 12–17 s measured.
 
-That is a more honest result than the one this section used to claim, and the correction is worth
-stating plainly: **the earlier "the controller asked" evidence was not real.**
-`verify:social-information` instructed APPROACH to vector AAL77 while handing it a world containing
-only AAL221 and SWA455 — AAL77 had a pilot sheet but had never been given an aircraft state
-anywhere in the repo — and it probed feasibility for `AAL221` while the instruction named AAL77.
-The controller had been asking about a phantom. Fixing the scenario (giving AAL77 a position, and
-probing the aircraft actually under decision) removed the confusion, and with it the query.
+`npm run verify:social-information` **asserts the loop and reports the choice.** It fails if the
+mechanism breaks — a clearance that never reaches the crew, a refusal that forces no re-plan, a
+query that never round-trips. Whether a model elects to spend window asking is reported, not
+asserted: a build that went red because a model exercised judgement differently would be measuring
+the wrong thing.
 
-**Asking is not free**, and that is why the choice is real. `query_pilot`'s `invoke()` awaits the
-reply, and `FunctionCallState.run` awaits the tool, so the controller's whole turn is parked for the
-length of a pilot's turn — ~13 s against a ~44 s window. A controller must judge whether it can
-afford to find out, and the value of the unknown is exactly what it does not know. No solver
-resolves that; this model resolved it by not paying.
+#### What was wrong with this before, in full
 
-`npm run verify:social-information` replays the whole thing from the committed cache and **exits
-non-zero**, because the controller did not ask. That is the finding, not a broken build.
+The earlier version of this section claimed the controller asked. **That evidence was not real, and
+neither was the mechanism underneath it.**
+
+- `verify:social-information` instructed APPROACH to vector **AAL77 through a world containing only
+  AAL221 and SWA455.** AAL77 had a pilot sheet but no aircraft state anywhere in the repo. It also
+  probed feasibility for `AAL221` while the instruction named AAL77. The controller was asking about
+  a phantom.
+- **`clearance.issued` had a listener and no publisher.** A committed clearance never reached the
+  crew, so `refusalFor` never ran on a real clearance and no pilot had ever refused one.
+- **`actuator.command.issued` likewise.** The World subscribed to it and nothing published it, so no
+  controller decision had ever moved metal. The trace flew a hardcoded BRAID-2 instead.
+- **`refusalFor` keys on a turn magnitude; controllers emit absolute headings.** Nothing translated,
+  so every turn-based refusal rule in the repo was dead regardless of the events.
+- **`pilot.unable` had no consumer** but the trace writer — a refusal was, to the running system,
+  indistinguishable from acceptance.
+- **`pilot.reply` was never published.** The query round-trip was closed by the evidence script
+  itself: a tap sniffed the framework's `function_call.completed`, guessed a reply by substring, and
+  re-injected it with a hardcoded `queryId: "q1"`. The mechanism being demonstrated lived inside the
+  demonstration.
+- **The cost model overclaimed.** `cost.ts` advertised "four genuinely incommensurable axes";
+  `arrivalDelaySec` was an exact rescaling of `deltaTrackMilesNm`, `peakLoadFactor` was a hardcoded
+  `1.06` for every turn, and the speed-reduction option used to justify fuel as a separate axis did
+  not exist — `Command` had no speed field. All six turns were totally ordered, so a solver could
+  have taken an argmax.
+
+All of it is now connected, and the repairs are load-bearing rather than cosmetic: `peakLoadFactor`
+is computed from the bank a level turn requires (`sqrt(1 + (v·ω/g)²)` — multiply, divide and sqrt
+only, so the `Math.*` ban holds with no new exemption); the catalogue gained expedited turns and
+real speed reductions, taking it from 10 templates to 18; and incomparable option pairs went from
+**30 to 115**, with the Pareto frontier from 5 distinct points to 10. `npm run record:trace` now
+reports `2 controller command(s) flown` where it used to fly a script.
+
 
 ### RETRACE found a real bug in this repo
 

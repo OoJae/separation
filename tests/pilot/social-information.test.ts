@@ -15,7 +15,9 @@ import { OutboxDispatcher } from "../../src/support/outbox"
 import { VirtualClock } from "../../src/support/ports"
 import { probe } from "../../src/domain/feasibility/prober"
 import { HORIZON_S, INITIAL, WINDOWS, narrowingCandidatesForA } from "../../src/scenarios/braid-2"
-import { MEDICAL_CALLSIGN, sheetFor } from "../../src/scenarios/pilot-sheets"
+import { MEDICAL_AIRCRAFT, MEDICAL_CALLSIGN, sheetFor } from "../../src/scenarios/pilot-sheets"
+import { refusalFor } from "../../src/domain/disclosure/pilot-sheet"
+import { turnMagnitudeDeg } from "../../src/domain/airspace/aircraft-state"
 
 class S extends RuntimeState {}
 const settle = () => new Promise((r) => setTimeout(r, 50))
@@ -125,16 +127,43 @@ function harness() {
 }
 
 describe("geometry loses to socially-obtained information", () => {
+	// Probes the aircraft actually under decision. This said "AAL221" while every other line in
+	// the file instructs about AAL77 — the same phantom-subject bug the evidence script had, and
+	// it survived there because a FeasibleSet for the wrong aircraft still looks like a FeasibleSet.
 	it("the widest-margin option is NOT the one the constraint calls for", () => {
 		const set = probe({
-			subject: "AAL221", world: [...INITIAL], forGeneration: 1, horizonSec: HORIZON_S, nowSec: 0,
+			subject: MEDICAL_CALLSIGN, world: [...INITIAL, MEDICAL_AIRCRAFT],
+			forGeneration: 1, horizonSec: HORIZON_S, nowSec: 0,
 		})
 		const widest = [...set.options].sort((a, b) => b.margins.minHorizontalNm - a.margins.minHorizontalNm)[0]!
-		const shortest = [...set.options].sort((a, b) => a.cost.deltaTrackMilesNm - b.cost.deltaTrackMilesNm)[0]!
+		const shortest = [...set.options].sort((a, b) => a.cost.arrivalDelaySec - b.cost.arrivalDelaySec)[0]!
 
 		// If these were the same option, the choice would be free and the query pointless.
 		expect(widest.optionId).not.toBe(shortest.optionId)
-		expect(widest.cost.deltaTrackMilesNm).toBeGreaterThan(shortest.cost.deltaTrackMilesNm)
+		expect(widest.cost.arrivalDelaySec).toBeGreaterThan(shortest.cost.arrivalDelaySec)
+	})
+
+	/**
+	 * The decisive fact, stated as a number: a THIRD of the separation-safe options will be
+	 * refused, and the controller cannot tell which from anything it can see.
+	 */
+	it("a third of the safe options would be refused, and the widest-margin one is among them", () => {
+		const set = probe({
+			subject: MEDICAL_CALLSIGN, world: [...INITIAL, MEDICAL_AIRCRAFT],
+			forGeneration: 1, horizonSec: HORIZON_S, nowSec: 0,
+		})
+		const sheet = sheetFor(MEDICAL_CALLSIGN)!
+		const refusable = set.options.filter((o) => refusalFor(sheet, {
+			targetAltFt: o.maneuver.command.targetAltFt,
+			targetGroundspeedKt: o.maneuver.command.targetGroundspeedKt,
+			turnMagnitudeDeg: o.maneuver.command.targetHeadingMdeg === undefined ? undefined
+				: turnMagnitudeDeg(MEDICAL_AIRCRAFT.headingMdeg, o.maneuver.command.targetHeadingMdeg),
+		}) !== null)
+
+		expect(refusable.length).toBeGreaterThan(0)
+		expect(refusable.length).toBeLessThan(set.options.length)
+		const widest = [...set.options].sort((a, b) => b.margins.minHorizontalNm - a.margins.minHorizontalNm)[0]!
+		expect(refusable.map((o) => o.optionId)).toContain(widest.optionId)
 	})
 
 	it("the controller asks, the pilot answers from its sheet, and the answer reaches the controller", async () => {

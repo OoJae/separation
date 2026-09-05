@@ -18,11 +18,15 @@ import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner
 import { MIMO_MODEL_NAME, mimoFromEnv } from "../src/infrastructure/inference/mimo"
 import { TurnScheduler } from "../src/infrastructure/scheduling/turn-scheduler"
 import { QueryDesk } from "../src/participants/controller/query-desk"
+import { InterlockDesk } from "../src/participants/interlock-desk"
+import { WINDOWS } from "../src/scenarios/braid-2"
 import { createController } from "../src/participants/controller"
 import { IdentityBook } from "../src/participants/identity-book"
 import { PilotEvent, createPilot } from "../src/participants/pilot"
 import { HORIZON_S, INITIAL } from "../src/scenarios/braid-2"
 import { MEDICAL_AIRCRAFT, MEDICAL_CALLSIGN, PILOT_SHEETS, sheetFor } from "../src/scenarios/pilot-sheets"
+import { refusalFor } from "../src/domain/disclosure/pilot-sheet"
+import { turnMagnitudeDeg } from "../src/domain/airspace/aircraft-state"
 import { OutboxDispatcher } from "../src/support/outbox"
 import { SystemClock } from "../src/support/ports"
 
@@ -57,6 +61,17 @@ const scheduler = new TurnScheduler({ runLoop, outbox, clock, identity })
 const queryDesk = new QueryDesk({ outbox, clock, timeoutMs: 90_000 })
 // AAL77 must actually BE in the sector it is being vectored through — see MEDICAL_AIRCRAFT.
 const world = () => [...INITIAL, MEDICAL_AIRCRAFT]
+const intents = new IntentRegistry()
+
+/**
+ * The airlock. Present here because it is what RELEASES a committed clearance — and releasing is
+ * what publishes it to the world and to the crew. Without it a commit was a value returned to the
+ * model and nothing more, so no pilot could ever see, let alone refuse, what it had been given.
+ */
+const desk = InterlockDesk.init({
+	world, windows: WINDOWS, horizonSec: HORIZON_S, clock, outbox, settleMs: 500, intents,
+	narrowingCandidates: () => [],
+})
 
 // The geometry, before anyone asks anything.
 // The subject is the aircraft the controller is actually being asked to vector. This said
@@ -73,7 +88,29 @@ console.log(`    shortest track: ${shortest.optionId.padEnd(26)} ${shortest.marg
 console.log(`    ordering      : ${set.ordering}`)
 console.log(`\n  Both are separation-safe. Geometry cannot choose between them.\n`)
 
+/**
+ * GROUND TRUTH, held back from the controller and revealed only in the report.
+ *
+ * The sheet is read HERE, in the harness, never by the controller and never by the prober — that
+ * ban is machine-checked. This is the same device the fuel discrepancy uses: we injected the fact,
+ * so we can measure against it instead of guessing.
+ */
+const sheet = sheetFor(MEDICAL_CALLSIGN)!
+const wouldRefuse = set.options.filter((o) => refusalFor(sheet, {
+	targetAltFt: o.maneuver.command.targetAltFt,
+	targetGroundspeedKt: o.maneuver.command.targetGroundspeedKt,
+	turnMagnitudeDeg: o.maneuver.command.targetHeadingMdeg === undefined
+		? undefined
+		: turnMagnitudeDeg(MEDICAL_AIRCRAFT.headingMdeg, o.maneuver.command.targetHeadingMdeg),
+}) !== null)
+console.log(`  Of those ${set.options.length} separation-safe options, ${wouldRefuse.length} would be REFUSED by the crew:`)
+console.log(`    ${wouldRefuse.map((o) => o.maneuver.template).join(", ")}`)
+console.log(`  Nothing the controller can see says so — not the world, not a snapshot, not the`)
+console.log(`  FeasibleSet. The widest-margin option is among them.\n`)
+
 const events: string[] = []
+const refusals: string[] = []
+let replans = 0
 let replyText = ""
 let waitedMs = 0
 
@@ -103,11 +140,16 @@ const controller = createController({
 		`Then propose_clearance with the heading you choose.`,
 	].join("\n"),
 	world, generation: () => 1, nowSec: () => 0, outbox, horizonSec: HORIZON_S,
-	intents: new IntentRegistry(),
+	intents,
 	participantId: () => controller.getId(),
 	holdsStandingOver: () => true,
 	objectTo: () => null,
 	queryDesk,
+	beginTurn: (self, message) => {
+		replans += 1
+		console.log(`  [re-plan]     APPROACH must plan again after the refusal`)
+		scheduler.begin(self, message, { model: modelName, maxOutputTokens: 3_000, tools: self.getTools() }, desk.handler())
+	},
 })
 
 const tap: SituationHandler = {
@@ -122,17 +164,20 @@ const tap: SituationHandler = {
 				console.log(`  [query]       APPROACH -> ${q.toCallsign}: "${q.question}"`)
 				console.log(`  [parked]      the controller is now WAITING — its turn is open and blocked`)
 			}
-			if (event.type === "function_call.completed") {
-				const p = event.payload as { callId?: string; output?: { text?: string } }
-				const text = p.output?.text ?? ""
-				if (text.includes("detail") || text.includes("reported")) {
-					replyText = text
-					waitedMs = clock.nowMs()
-					queryDesk.receive({
-						queryId: "q1", callsign: MEDICAL_CALLSIGN, toController: "APPROACH",
-						text, claims: [],
-					}, clock.nowMs(), clock.nowMs())
-				}
+			// The pilot publishes `pilot.reply` and the QueryDesk subscribes for itself, so there
+			// is nothing to forward here. This used to sniff `function_call.completed`, guess a
+			// reply by substring, and re-inject it with a hardcoded queryId — the mechanism under
+			// demonstration living inside the demonstration.
+			if (event.type === PilotEvent.REPLY) {
+				const r = event.payload as { text?: string; callsign?: string }
+				replyText = r.text ?? ""
+				console.log(`  [reply]       ${r.callsign} -> APPROACH: "${(r.text ?? "").slice(0, 80)}"`)
+			}
+			if (event.type === PilotEvent.UNABLE) {
+				const u = event.payload as { callsign?: string; clearanceId?: string; reason?: string }
+				refusals.push(`${u.callsign} unable ${u.clearanceId}: ${u.reason}`)
+				console.log(`  [unable]      ${u.callsign} REFUSES ${u.clearanceId}: "${u.reason}"`)
+				console.log(`  [cost]        that clearance will not be flown; the window spent on it is gone`)
 			}
 			if (event.type === "function_call.started") {
 				const p = event.payload as { call?: { name?: string; args?: string } }
@@ -144,7 +189,7 @@ const tap: SituationHandler = {
 const observer = createHuman({ name: "observer", capabilities: [], handlers: [tap] })
 
 initializeRuntime({ state: new S(), inferenceRunnerConfig: { runner } })
-for (const p of [observer, controller, ...pilots]) { join(p); identity.register(p) }
+for (const p of [observer, desk, queryDesk, controller, ...pilots]) { join(p); identity.register(p) }
 
 const started = performance.now()
 scheduler.begin(controller, `Vector ${MEDICAL_CALLSIGN} to the runway.`, {
@@ -153,7 +198,7 @@ scheduler.begin(controller, `Vector ${MEDICAL_CALLSIGN} to the runway.`, {
 	// no tool call, and the run read as "the controller chose not to ask". A truncated turn is not
 	// a decision. Sized for a three-aircraft picture with room to still call a tool afterwards.
 	model: modelName, maxOutputTokens: 3_000, tools: controller.getTools(),
-})
+}, desk.handler())
 /**
  * Exit on SETTLEMENT, not on a fixed sleep.
  *
@@ -184,24 +229,56 @@ while (performance.now() - startedWaiting < CAP_MS) {
 
 console.log(`\n${"=".repeat(72)}`)
 console.log(`  tool sequence : ${events.join("  ->  ")}`)
+
+// A query that no pilot could answer still publishes function_call.started, so keying the result
+// on the tool NAME would pass on a round trip that never closed. The reply is the evidence.
 const asked = events.some((e) => e.includes("query_pilot"))
-console.log(`  asked the pilot: ${asked ? "YES" : "no"}`)
+const answered = replyText !== ""
+const refused = refusals.length > 0
+const committed = events.some((e) => e.includes("commit_clearance"))
+
+console.log(`  asked the pilot: ${asked ? (answered ? "YES — and got an answer" : "asked, but never answered") : "no"}`)
 if (replyText) {
 	const detail = (() => { try { return JSON.parse(JSON.parse(replyText).reply ?? "{}").detail } catch { return null } })()
 	console.log(`  disclosed     : ${detail ?? replyText.slice(0, 100)}`)
 }
+if (refused) for (const r of refusals) console.log(`  refused       : ${r}`)
+console.log(`  re-plans forced: ${replans}`)
+const chosen = events.filter((e) => e.includes("propose_clearance")).length
+console.log(`  refusable options it had to avoid BLIND: ${wouldRefuse.length}/${set.options.length}`)
+console.log(`  proposals made : ${chosen}`)
 console.log(`  exit          : ${exitReason} after ${Math.round(performance.now() - started)} ms`)
 const stats = cache.stats()
 console.log(`  live calls    : ${budget.used()}   cache ${stats.hits} hit / ${stats.misses} miss`)
-// Report what happened, in both branches. This printed the PASS sentence either way, so a run
-// where the controller never asked still read as "the controller spent window to obtain what
-// geometry could not give it" — asserting the very thing that did not occur.
-if (asked) {
-	console.log(`\n  PASS — the controller spent window to obtain what geometry could not give it.`)
+
+/**
+ * WHAT THIS ASSERTS, AND WHAT IT ONLY REPORTS.
+ *
+ * It asserts the LOOP: that a committed clearance actually reaches the crew, and that when the
+ * crew refuses it the controller is made to plan again. Every one of those steps used to be
+ * unreachable — `clearance.issued` and `actuator.command.issued` had listeners and no publisher,
+ * `refusalFor` keyed on a field nobody populated, and `pilot.unable` had no consumer but the
+ * trace writer. A broken loop is a regression and fails here.
+ *
+ * It only REPORTS the model's choice. Whether a controller elects to spend ~13 s of its window
+ * asking is a judgement, and a build that goes red because a model exercised judgement differently
+ * would be measuring the wrong thing. What the choice COSTS is measured either way.
+ */
+const loopWorked = committed && (refused ? replans > 0 : true) && (asked ? answered : true)
+
+console.log(`\n  ${loopWorked ? "PASS" : "FAIL"} — the controller/pilot loop is connected:`)
+console.log(`     clearance committed and issued to the crew : ${committed ? "yes" : "NO"}`)
+console.log(`     crew refused it from its private sheet     : ${refused ? "yes" : "no"}`)
+console.log(`     refusal forced a re-plan                   : ${refused ? (replans > 0 ? "yes" : "NO") : "n/a"}`)
+console.log(`     query round-tripped when asked             : ${asked ? (answered ? "yes" : "NO") : "n/a"}`)
+
+if (asked && answered) {
+	console.log(`\n  The controller SPENT WINDOW to obtain what geometry could not give it.`)
+} else if (refused) {
+	console.log(`\n  The controller did NOT ask. It committed from geometry alone, the crew refused,`)
+	console.log(`  and it had to plan again — so guessing cost it a whole turn where asking would`)
+	console.log(`  have cost ~13 s. That is the trade-off, measured rather than asserted.`)
 } else {
-	console.log(`\n  FAIL — the controller did NOT query the pilot. It committed a clearance from`)
-	console.log(`  geometry alone, so the decisive private fact never entered the decision.`)
-	console.log(`  The mechanism is intact and proven in tests/pilot/social-information.test.ts;`)
-	console.log(`  what this run reports is a MODEL choice, recorded rather than retried.`)
+	console.log(`\n  The controller did not ask, and its clearance was accepted. Reported, not retried.`)
 }
-process.exit(asked ? 0 : 1)
+process.exit(loopWorked ? 0 : 1)

@@ -139,7 +139,8 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 			},
 			strict: false,
 			invoke: async (args: {
-				clearanceId: string; callsign: string; targetAltFt?: number; targetHeadingDeg?: number; plannedMarginNm: number
+				clearanceId: string; callsign: string; targetAltFt?: number; targetHeadingDeg?: number
+				targetGroundspeedKt?: number; plannedMarginNm: number
 			}) => {
 				const command: Record<string, number> = {}
 				if (args.targetAltFt !== undefined) {
@@ -147,6 +148,10 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 					command.verticalRateFpm = DESCENT_FPM
 				}
 				if (args.targetHeadingDeg !== undefined) command.targetHeadingMdeg = Math.round(args.targetHeadingDeg) * 1000
+				// The catalogue offers speed reductions, so a controller has to be able to issue one.
+				// It could not: this tool had no speed field, so an option the prober published was
+				// literally unspeakable and the axis was unreachable from the decision.
+				if (args.targetGroundspeedKt !== undefined) command.targetGroundspeedKt = Math.round(args.targetGroundspeedKt)
 				proposed.set(args.clearanceId, { callsign: args.callsign, command })
 				deps.intents.announce({
 					id: args.clearanceId, callsign: args.callsign, command,

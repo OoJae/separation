@@ -24,6 +24,19 @@ export type AircraftState = {
 	readonly verticalSpeedFpm: number
 }
 
+/**
+ * How many degrees, signed, a turn to `targetHeadingMdeg` actually is from `currentHeadingMdeg`.
+ *
+ * Lives here rather than in the feasibility layer because it is plain heading arithmetic and TWO
+ * unrelated consumers need it: the prober, to cost a turn, and the interlock desk, to describe a
+ * committed clearance to a pilot. A pilot's refusal rules are expressed as a turn MAGNITUDE while
+ * controllers speak absolute headings, and nothing was translating between the two — so every
+ * turn-based refusal rule in the repo was unreachable.
+ */
+export function turnMagnitudeDeg(currentHeadingMdeg: Mdeg, targetHeadingMdeg: Mdeg): number {
+	return mdegDelta(currentHeadingMdeg, targetHeadingMdeg) / 1000
+}
+
 /** Standard climb/descent rate a clearance arms when it does not specify one. */
 export const DEFAULT_VERTICAL_RATE_FPM = 2_000
 
@@ -38,6 +51,22 @@ export type Command = {
 	readonly targetAltFt?: number
 	readonly targetHeadingMdeg?: Mdeg
 	readonly verticalRateFpm?: number
+	/**
+	 * Rate to turn at, milli-degrees per second. Defaults to standard rate.
+	 *
+	 * Only rates satisfying `isAdmissibleTurnRate` may be used — the integrator's exactness (and so
+	 * the whole determinism story) depends on `rate * dt` being a whole number of milli-degrees.
+	 */
+	readonly turnRateMdegPerS?: number
+	/**
+	 * Speed to fly, knots.
+	 *
+	 * Applied as an exact assignment on the tick the command becomes effective, with NO
+	 * acceleration ramp — the same modelling choice already made for vertical rate above, and made
+	 * for the same reason: a ramp would accumulate a float every tick, and groundspeed is a double.
+	 * Assigning a scenario constant cannot drift.
+	 */
+	readonly targetGroundspeedKt?: number
 }
 
 /**
@@ -58,7 +87,8 @@ export function integrate(state: AircraftState, command: Command | undefined): A
 
 	if (command?.targetHeadingMdeg !== undefined) {
 		const remaining = mdegDelta(headingMdeg, command.targetHeadingMdeg)
-		const step = TURN_RATE_MDEG_PER_S * INTEGRATE_DT_S // exactly 60
+		// exactly 60 at standard rate, exactly 120 expedited — never a fraction of a milli-degree
+		const step = (command.turnRateMdegPerS ?? TURN_RATE_MDEG_PER_S) * INTEGRATE_DT_S
 		if (Math.abs(remaining) <= step) headingMdeg = normaliseMdeg(command.targetHeadingMdeg)
 		else headingMdeg = normaliseMdeg(headingMdeg + Math.sign(remaining) * step)
 	}
@@ -80,8 +110,11 @@ export function integrate(state: AircraftState, command: Command | undefined): A
 		}
 	}
 
+	// Assignment, not accumulation — see Command.targetGroundspeedKt.
+	const groundspeedKt = command?.targetGroundspeedKt ?? state.groundspeedKt
+
 	const { east, north } = unitVector(headingMdeg)
-	const distance = state.groundspeedKt * KT_TO_NM_PER_S * INTEGRATE_DT_S
+	const distance = groundspeedKt * KT_TO_NM_PER_S * INTEGRATE_DT_S
 
 	return {
 		callsign: state.callsign,
@@ -89,7 +122,7 @@ export function integrate(state: AircraftState, command: Command | undefined): A
 		y: state.y + north * distance,
 		altFt,
 		headingMdeg,
-		groundspeedKt: state.groundspeedKt,
+		groundspeedKt,
 		verticalSpeedFpm,
 	}
 }

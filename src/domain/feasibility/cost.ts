@@ -10,6 +10,11 @@
  * There is deliberately NO score, rank, best, recommended, utility, weight, sortKey, or any
  * numeric aggregate anywhere in this module. That absence is machine-checked by
  * tests/substrate/invariants.test.ts — it is an invariant, not an intention.
+ *
+ * ONE HONEST ASYMMETRY: a left and a right turn of the same magnitude and rate have IDENTICAL cost
+ * vectors, because cost does not see traffic. What separates them is `margins`, which is geometry
+ * and deliberately not a cost. So the catalogue contains genuinely tied pairs, and that is a fact
+ * about the world rather than a defect — tests/feasibility/prober.ts asserts it stays true.
  */
 export type CostVector = {
 	/** Extra track miles flown, NM. */
@@ -17,12 +22,24 @@ export type CostVector = {
 	/** Delay to the arrival gate, seconds. */
 	readonly arrivalDelaySec: number
 	/**
-	 * Fuel burned, integer milligrams. Derived from the burn regime, NOT from track miles — a
-	 * speed reduction costs fuel with ZERO extra track miles, which is exactly why this is a
-	 * separate axis rather than a rescaling of the first one.
+	 * Fuel burned, integer milligrams. NEGATIVE when the manoeuvre saves fuel.
+	 *
+	 * Derived from the burn regime, never from track miles. A speed reduction adds ZERO track
+	 * miles, arrives LATER, and burns LESS — the one combination no turn and no descent can
+	 * produce, and the reason this is a separate axis rather than a rescaling of the first one.
+	 * That option is `slow-to-*` in the catalogue; the claim used to be made here with nothing in
+	 * the catalogue backing it, because `Command` had no speed field at all.
 	 */
 	readonly fuelBurnMg: number
-	/** Peak load factor, g. Derived from turn rate; a comfort and passenger-safety cost. */
+	/**
+	 * Peak load factor, g. Computed from the bank a level turn at this speed and rate requires:
+	 * `sqrt(1 + (v*omega/g)^2)`. See `loadFactorFor` in prober.ts.
+	 *
+	 * It was previously a hardcoded 1.06 returned for every turn regardless of angle, rate or
+	 * speed — a constant axis, carrying no information, which left all six turns totally ordered
+	 * and made this type's "four incommensurable axes" claim false. It now varies with both speed
+	 * and turn rate, which is what makes an expedited turn a genuine trade rather than a label.
+	 */
 	readonly peakLoadFactor: number
 }
 

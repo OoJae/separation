@@ -37,9 +37,31 @@ export const HEADING_TABLE_SIZE = MDEG_PER_REV / MDEG_GRID // 18000
 
 /** Standard rate turn, ICAO: 3 degrees per second. */
 export const TURN_RATE_MDEG_PER_S = 3_000
+/**
+ * An expedited turn — twice standard rate. Steeper bank, so a higher load factor, but it reaches
+ * the new heading sooner and therefore costs fewer track miles.
+ *
+ * DETERMINISM RULE: a turn rate is only admissible if `rate * INTEGRATE_DT_S` is a whole number of
+ * milli-degrees, so the aircraft lands exactly on its target on a determinate tick with no residue.
+ * 3000 -> exactly 60, 6000 -> exactly 120. `isAdmissibleTurnRate` enforces it and
+ * tests/world/integrator.test.ts asserts it for every rate the catalogue can produce.
+ */
+export const EXPEDITE_TURN_RATE_MDEG_PER_S = 6_000
+
+/** Does this turn rate divide the integration step exactly? See EXPEDITE_TURN_RATE_MDEG_PER_S. */
+export function isAdmissibleTurnRate(rateMdegPerS: number): boolean {
+	const step = rateMdegPerS * INTEGRATE_DT_S
+	return Number.isInteger(step) && step > 0
+}
 
 /** Knots to NM per second. 250 kt = 0.0694444... NM/s */
 export const KT_TO_NM_PER_S = 1 / 3600
+/** Knots to metres per second (1 NM = 1852 m exactly, by definition). */
+export const KT_TO_M_PER_S = 1852 / 3600
+/** Standard gravity, m/s^2 — CGPM 1901, exact by definition. */
+export const G_M_PER_S2 = 9.80665
+/** Degrees to radians. A CONSTANT, not a call: Math.PI is a number, and the ban is on functions. */
+export const DEG_TO_RAD = Math.PI / 180
 /** Feet per minute to feet per second. */
 export const FPM_TO_FPS = 1 / 60
 

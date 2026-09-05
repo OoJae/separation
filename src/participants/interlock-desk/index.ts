@@ -4,6 +4,8 @@ import type { AircraftState } from "../../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../../domain/airspace/encounter"
 import { evaluateJoint, narrowToSafe, type JointHazard } from "../../domain/interlock/joint-prober"
 import { COMMAND_LAG_S } from "../../domain/airspace/maneuver-window"
+import { turnMagnitudeDeg } from "../../domain/airspace/aircraft-state"
+import { PilotEvent } from "../../events/pilot-events"
 import { secondsToTick } from "../../domain/airspace/units"
 import type { ManeuverWindow } from "../../domain/airspace/maneuver-window"
 import type { IntentRegistry } from "../../domain/interlock/intent-registry"
@@ -265,8 +267,40 @@ export class InterlockDesk extends Participant {
 			this.decisions.push({ turnId: turn.turnId, outcome, committed, hazard })
 			this.objections.delete(turn.clearance.id)
 			this.pending.remove(turn.turnId)
+			this.issue(committed)
 			turn.release(committed)
 		}
+	}
+
+	/**
+	 * A released clearance leaves the airlock and becomes REAL, in the two ways that matter.
+	 *
+	 * Both of these events already had listeners and no publisher, so the two things a committed
+	 * clearance is supposed to do — move metal, and reach the crew who must fly it — did neither.
+	 * The world's `actuator.command.issued` handler and the pilot's `clearance.issued` handler were
+	 * both fully built and unreachable, which is why no controller decision had ever altered the
+	 * simulated world and why no pilot had ever refused one.
+	 *
+	 * `turnMagnitudeDeg` is the translation that was missing. Controllers speak absolute headings;
+	 * a pilot's refusal rules are written as a turn MAGNITUDE ("unable a turn of 25 degrees or
+	 * more, medical on board"). Without it every turn-based refusal rule in the repo was dead
+	 * regardless of the events, because the field it keys on was never populated.
+	 */
+	private issue(clearance: PendingClearance): void {
+		const subject = this.deps.world().find((a) => a.callsign === clearance.callsign)
+		const heading = clearance.command.targetHeadingMdeg
+		const magnitude = subject !== undefined && heading !== undefined
+			? turnMagnitudeDeg(subject.headingMdeg, heading)
+			: undefined
+
+		this.deps.outbox.publish(WorldEvent.COMMAND_ISSUED, this.getId(), {
+			callsign: clearance.callsign, command: clearance.command,
+		})
+		this.deps.outbox.publish(PilotEvent.CLEARANCE_ISSUED, this.getId(), {
+			callsign: clearance.callsign,
+			clearanceId: clearance.id,
+			command: { ...clearance.command, turnMagnitudeDeg: magnitude },
+		})
 	}
 
 	/**

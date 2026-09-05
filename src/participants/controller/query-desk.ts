@@ -1,5 +1,7 @@
+import { Participant, SituationSpecification } from "@mozaik-ai/core"
+import type { SituationContext, SituationHandler } from "@mozaik-ai/core"
 import type { Callsign } from "../../domain/airspace/aircraft-state"
-import { PilotEvent, type ReplyPayload } from "../pilot"
+import { PilotEvent, type ReplyPayload } from "../../events/pilot-events"
 import type { OutboxDispatcher } from "../../support/outbox"
 import type { Clock } from "../../support/ports"
 
@@ -23,8 +25,9 @@ export type QueryOutcome =
  * A timeout is reported as an outcome, never thrown. If it fires, that is a finding about a
  * controller parked forever on a peer — worth writing up, not worth silently lengthening.
  */
-export class QueryDesk {
+export class QueryDesk extends Participant {
 	private readonly waiting = new Map<string, (outcome: QueryOutcome) => void>()
+	private readonly startedAt = new Map<string, number>()
 	private counter = 0
 	private timeouts = 0
 
@@ -34,7 +37,45 @@ export class QueryDesk {
 			readonly clock: Clock
 			readonly timeoutMs: number
 		},
-	) {}
+	) {
+		super({ id: "query-desk", name: "query-desk", role: "agent", capabilities: ["query.correlate"] }, [])
+		this.setHandlers([this.replyHandler()])
+	}
+
+	/**
+	 * Subscribe to `pilot.reply` and settle the matching parked turn.
+	 *
+	 * This closes the round trip IN PRODUCTION. It used to be closed by the evidence scripts
+	 * themselves: a tap sniffed the framework's `function_call.completed`, guessed a reply by
+	 * substring (`text.includes("detail")`), and re-injected it with a HARDCODED `queryId: "q1"`
+	 * — so only the first query of a run could ever be answered, `waitedMs` was always 0, and the
+	 * mechanism the demo was demonstrating lived in the demo rather than the system.
+	 */
+	private replyHandler(): SituationHandler {
+		const desk = this
+		class WhenPilotReplies extends SituationSpecification {
+			isSatisfiedBy({ event }: SituationContext): boolean {
+				return event.type === PilotEvent.REPLY
+			}
+		}
+		return {
+			specification: new WhenPilotReplies(),
+			processor: {
+				// Synchronous and never throws — a throwing processor starves the bus (#15).
+				apply({ event }) {
+					const reply = event.payload as Partial<ReplyPayload>
+					if (typeof reply.queryId !== "string" || typeof reply.text !== "string") return
+					desk.receive({
+						queryId: reply.queryId,
+						callsign: reply.callsign ?? "",
+						toController: reply.toController ?? "",
+						text: reply.text,
+						claims: reply.claims ?? [],
+					}, desk.deps.clock.nowMs())
+				},
+			},
+		}
+	}
 
 	timeoutsSeen(): number {
 		return this.timeouts
@@ -59,10 +100,12 @@ export class QueryDesk {
 				if (settled) return
 				settled = true
 				this.waiting.delete(queryId)
+				this.startedAt.delete(queryId)
 				resolve(outcome)
 			}
 
 			this.waiting.set(queryId, settle)
+			this.startedAt.set(queryId, startedAt)
 			this.deps.clock.after(this.deps.timeoutMs, () => {
 				if (settled) return
 				this.timeouts += 1
@@ -78,8 +121,14 @@ export class QueryDesk {
 		})
 	}
 
-	/** Feed every `pilot.reply` here. Correlates by queryId; an unknown id is ignored. */
-	receive(reply: ReplyPayload, atMs: number, startedAtMs = atMs): void {
+	/**
+	 * Correlates by queryId; an unknown id is ignored.
+	 *
+	 * `startedAtMs` now defaults to the instant the query was actually ASKED, remembered here,
+	 * rather than to `atMs` — which made `waitedMs` identically zero and silently erased the very
+	 * cost this desk exists to measure.
+	 */
+	receive(reply: ReplyPayload, atMs: number, startedAtMs = this.startedAt.get(reply.queryId) ?? atMs): void {
 		const settle = this.waiting.get(reply.queryId)
 		if (settle === undefined) return
 		settle({ ok: true, text: reply.text, claims: reply.claims, waitedMs: Math.max(0, atMs - startedAtMs) })

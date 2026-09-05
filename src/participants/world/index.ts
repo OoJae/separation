@@ -52,7 +52,7 @@ export class WorldParticipant extends Participant {
 		const world = this
 		class WhenCommandIssued extends SituationSpecification {
 			isSatisfiedBy({ event }: SituationContext): boolean {
-				return event.type === "actuator.command.issued"
+				return event.type === WorldEvent.COMMAND_ISSUED
 			}
 		}
 		return {
