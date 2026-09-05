@@ -17,7 +17,8 @@
     "verify:theorem": "tsx scripts/verify-theorem.ts",
     "measure:latency": "tsx scripts/measure-latency.ts",
     "demo:live": "tsx scripts/demo-live.ts",
-    "verify:social-information": "tsx scripts/verify-social-information.ts"
+    "verify:social-information": "tsx scripts/verify-social-information.ts",
+    "retrace:explore": "tsx scripts/retrace-explore.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",

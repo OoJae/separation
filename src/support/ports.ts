@@ -7,6 +7,8 @@
  * `new Date()` or `SemanticEvent.create` — enforced by tests/substrate/no-wall-clock.test.ts.
  */
 
+import { currentPolicy } from "../retrace/schedule"
+
 export type TimerHandle = number
 
 export interface Clock {
@@ -80,7 +82,19 @@ export class VirtualClock implements Clock {
 
 	runUntil(targetMs: number): void {
 		while (this.timers.length > 0 && this.timers[0]!.dueMs <= targetMs) {
-			const timer = this.timers.shift()!
+			// THE SCHEDULING SEAM. Eligible = every timer already due at the earliest due time.
+			// The default policy picks index 0, reproducing the previous `shift()` exactly.
+			// Only timers sharing the earliest due time are eligible, so causality holds: a timer
+			// can never fire before it is due.
+			const earliest = this.timers[0]!.dueMs
+			let eligible = 0
+			while (eligible < this.timers.length && this.timers[eligible]!.dueMs === earliest) eligible++
+
+			const index = eligible === 1
+				? 0
+				: currentPolicy().choose({ kind: "timer", options: eligible, label: `timer@${earliest}x${eligible}` })
+
+			const timer = this.timers.splice(index, 1)[0]!
 			this.currentMs = timer.dueMs
 			timer.fn()
 		}

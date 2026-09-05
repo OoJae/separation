@@ -1,5 +1,6 @@
 import { SemanticEvent } from "@mozaik-ai/core"
 import type { Clock } from "./ports"
+import { currentPolicy } from "../retrace/schedule"
 
 /** The narrow slice of the runtime the outbox needs. Keeps it testable without a runtime. */
 export type SendEvent = (event: SemanticEvent, senderId: string) => void
@@ -55,7 +56,19 @@ export class OutboxDispatcher {
 		this.draining = true
 		try {
 			while (this.queue.length > 0) {
-				const next = this.queue.shift()!
+				// THE SCHEDULING SEAM. Under the default FifoPolicy this picks index 0 every
+				// time, which is exactly the previous `shift()` — so behaviour is unchanged and
+				// every existing test stays green. Under exploration it delivers a different
+				// eligible event first, within causal constraints: nothing here can be delivered
+				// before it was published, because it is not in the queue until then.
+				const index = this.queue.length === 1
+					? 0
+					: currentPolicy().choose({
+							kind: "outbox",
+							options: this.queue.length,
+							label: `outbox:${this.queue[0]!.event.type}+${this.queue.length - 1}`,
+						})
+				const next = this.queue.splice(index, 1)[0]!
 				this.send(next.event, next.senderId)
 			}
 		} finally {

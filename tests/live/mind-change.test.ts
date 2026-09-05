@@ -115,9 +115,9 @@ function harness() {
 	for (const p of [observer, broker, desk, approach, flow]) { join(p); identity.register(p) }
 
 	// Overlapping standing: both controllers legally hold AAL221 under different objectives.
-	broker.bid({ controller: "APPROACH", callsign: "AAL221", objective: "runway-sequence", durationMs: 60_000 })
-	broker.bid({ controller: "FLOW", callsign: "AAL221", objective: "metering-interval", durationMs: 60_000 })
-	broker.bid({ controller: "FLOW", callsign: "SWA455", objective: "metering-interval", durationMs: 60_000 })
+	broker.bidSync({ controller: "APPROACH", callsign: "AAL221", objective: "runway-sequence", durationMs: 60_000 })
+	broker.bidSync({ controller: "FLOW", callsign: "AAL221", objective: "metering-interval", durationMs: 60_000 })
+	broker.bidSync({ controller: "FLOW", callsign: "SWA455", objective: "metering-interval", durationMs: 60_000 })
 
 	return { clock, desk, broker, scheduler, approach, flow, runner, objections, inflightAtObjection }
 }

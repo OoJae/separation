@@ -84,6 +84,56 @@ the unknown is exactly what it does not know. No solver resolves that.
 
 `npm run verify:social-information` replays it from the committed cache.
 
+### RETRACE found a real bug in this repo
+
+`npm run retrace:explore` permutes the scheduling surface this architecture exposes — outbox
+delivery order, timer order, and instrumented yield seams — within causal constraints, then checks
+invariants and shrinks any violating schedule to a minimal repro.
+
+Pointed at ourselves, it found the airlock quietly cheating:
+
+```
+every-hold-gets-its-settle:
+  turn-2 was adjudicated after 20ms of a promised 50ms settle window
+  — 30ms of objection opportunity lost
+
+  raw schedule: 24 decisions (18 non-default), 1 yield seam
+  shrunk to   : 1 decisions (0 non-default), 0 yield seams
+  replays     : REPRODUCES
+```
+
+`hold()` scheduled a settle timer per turn, but `adjudicate()` drained the **whole** pending set on
+whichever timer fired first. A commit arriving 30 ms after its peer got 20 ms of protection instead
+of 50 — silently, and precisely when the sector is busy enough for two commits to overlap, which is
+exactly when a peer is most likely to object.
+
+**The shrinker's verdict is the interesting part.** It reduced the schedule to *one decision, zero
+non-default picks, zero yield seams* — which is the shrinker saying *you did not need me*. This was
+never a race. It reproduced on the plain FIFO schedule and had been sitting there the whole time.
+Post-fix: baseline clean, 200/200 explored schedules clean.
+
+**And one prediction was half wrong, which is worth saying.** Before building the tool I recorded
+two suspected bugs in the plan, so "RETRACE found a real bug" could not be redefined afterwards.
+The second was that `StandingBroker`'s `casWrite` passes `cell.token` as its own expected token —
+a tautology that can never fail. That reading is correct, but RETRACE found **no violation**, and
+investigating why gave the better answer: the site is **unreachable**, because `withGrant` denies a
+conflicting bid before the CAS is ever consulted. So it is dead code, not a live defect — an
+advertised safety mechanism doing nothing while something else quietly holds the invariant. Fixed
+anyway, because a mechanism that cannot fire is not a mechanism.
+
+### What RETRACE does not claim
+
+It does **not** explore V8's microtask scheduler, and says so. The surface it explores is the one
+this architecture actually exposes: which queued event dispatches next, which due timer fires next,
+and whether an instrumented read-compute-write boundary yields. Causality is enforced by
+construction rather than by filtering — the outbox only ever offers events already published, the
+clock only offers timers already due — so no unreachable schedule is even expressible. That is what
+separates this from a random number generator with a violation counter.
+
+The seam is also **non-invasive**: the default policy reproduces the previous behaviour exactly, and
+all 247 tests pass unchanged with it installed. If that were not true, every determinism claim in
+Phases 2–5 would be suspect.
+
 ### Three limitations, stated plainly
 
 **One vendor, not three.** The design called for one seat of final authority per vendor, so a
@@ -153,6 +203,7 @@ takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 | 3 | The interlock — **the theorem as a test** | ✅ |
 | 4 | Live controllers | ✅ |
 | 5 | Live pilots, private constraints | ✅ |
+| 6 | RETRACE — schedule exploration | ✅ |
 
 ## Reproduce
 

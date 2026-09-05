@@ -63,6 +63,8 @@ export class InterlockDesk extends Participant {
 	private readonly decisions: DeskDecision[] = []
 	private readonly objections = new Map<string, Objection>()
 	private counter = 0
+	/** turnId -> ms of settle actually granted before adjudication. RETRACE checks this. */
+	private readonly settleGranted = new Map<string, number>()
 
 	/**
 	 * A participant, because it announces — held, narrowed, released — and `sendEvent` refuses a
@@ -101,6 +103,15 @@ export class InterlockDesk extends Participant {
 
 	objectionsSeen(): number {
 		return this.objections.size
+	}
+
+	/** How long each held commit actually waited before it was adjudicated. */
+	settleWindows(): ReadonlyMap<string, number> {
+		return this.settleGranted
+	}
+
+	settleMs(): number {
+		return this.deps.settleMs
 	}
 
 	handler(): InterceptionHandler {
@@ -160,27 +171,44 @@ export class InterlockDesk extends Participant {
 		})
 	}
 
-	/** Inspect the WHOLE pending set at once — the one thing that must be serialized. */
+	/**
+	 * Inspect the pending set — the one thing that must be serialized.
+	 *
+	 * FIXED (Phase 6, found by RETRACE). This used to drain the WHOLE set on whichever timer fired
+	 * first, so a commit arriving 30 ms after its peer was adjudicated on the peer's earlier timer
+	 * and got 20 ms of a promised 50 ms settle window. It silently received less objection
+	 * opportunity than the airlock advertises — and precisely when the sector is busiest, which is
+	 * exactly when a peer is most likely to object.
+	 *
+	 * Only turns whose OWN settle has elapsed are adjudicated; the rest wait for their own timer.
+	 * The joint inspection is preserved, because a turn that is ready is still evaluated against
+	 * every clearance currently pending, ready or not.
+	 */
 	private adjudicate(): void {
-		const held = this.pending.entries()
+		const nowMs = this.deps.clock.nowMs()
+		const all = this.pending.entries()
+		const held = all.filter((t) => nowMs - t.heldAtMs >= this.deps.settleMs)
 		if (held.length === 0) return
 
 		const verdict = evaluateJoint({
 			world: this.deps.world(),
-			pending: held.map((h) => h.clearance),
+			// Every pending clearance, not just the ready ones: a hazard living in the
+			// intersection does not care whose settle window has elapsed.
+			pending: all.map((h) => h.clearance),
 			windows: this.deps.windows,
 			atMs: this.deps.clock.nowMs(),
 			horizonSec: this.deps.horizonSec,
 		})
 
 		for (const turn of held) {
+			this.settleGranted.set(turn.turnId, nowMs - turn.heldAtMs)
 			const hazard = verdict.hazards.find((h) => h.clearanceIds.includes(turn.clearance.id)) ?? null
 			const objection = this.objections.get(turn.clearance.id) ?? null
 			let outcome: DeskDecision["outcome"] = "clean"
 			let committed = turn.clearance
 
 			if (hazard !== null || objection !== null) {
-				const others = held.filter((h) => h.turnId !== turn.turnId).map((h) => h.clearance)
+				const others = all.filter((h) => h.turnId !== turn.turnId).map((h) => h.clearance)
 				// A peer's counter-proposal is tried FIRST — the objector said what it would accept.
 				const candidates = [
 					...(objection?.suggestTargetAltFt !== undefined

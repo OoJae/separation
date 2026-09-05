@@ -123,8 +123,8 @@ const observer = createHuman({ name: "observer", capabilities: [], handlers: [ta
 initializeRuntime({ state: new LiveState(), inferenceRunnerConfig: { runner } })
 for (const p of [observer, broker, desk, approach, flow]) { join(p); identity.register(p) }
 
-broker.bid({ controller: "APPROACH", callsign: "AAL221", objective: "runway-sequence", durationMs: 300_000 })
-broker.bid({ controller: "FLOW", callsign: "AAL221", objective: "metering-interval", durationMs: 300_000 })
+broker.bidSync({ controller: "APPROACH", callsign: "AAL221", objective: "runway-sequence", durationMs: 300_000 })
+broker.bidSync({ controller: "FLOW", callsign: "AAL221", objective: "metering-interval", durationMs: 300_000 })
 
 console.log(`LIVE — ${mimo.specification.name}, budget ${calls} calls\n`)
 console.log(`  standing over AAL221: ${broker.holdersOver("AAL221").join(", ")}\n`)
