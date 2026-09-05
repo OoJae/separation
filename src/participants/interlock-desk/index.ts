@@ -1,4 +1,4 @@
-import { FunctionCallItem, Participant } from "@mozaik-ai/core"
+import { FunctionCallItem, ModelMessageItem, Participant } from "@mozaik-ai/core"
 import type { ExecutableTransition, InferenceInput, InterceptionHandler } from "@mozaik-ai/core"
 import type { AircraftState } from "../../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../../domain/airspace/encounter"
@@ -128,8 +128,32 @@ export class InterlockDesk extends Participant {
 					call: FunctionCallItem
 					inferenceInput: InferenceInput
 				}
-				const clearance = desk.parse(call)
-				if (clearance === null) return transition
+				const parsed = desk.parse(call)
+
+				if (parsed === "malformed") {
+					// An instruction nobody can read must never reach the aircraft by skipping the
+					// checks that exist to catch it. SUBSTITUTE rather than pass through — an
+					// InterceptionHandler cannot halt a turn (API-NOTES #1), so the honest refusal
+					// is to replace the action with a message the controller then reasons about.
+					desk.deps.outbox.publish(WorldEvent.COMMAND_REJECTED, desk.getId(), {
+						reason: "malformed commit_clearance — refused before the airlock",
+						callId: call.callId,
+					})
+					return {
+						nextStateId: "model_message",
+						input: {
+							answer: ModelMessageItem.rehydrate({
+								text: "[refused] Your commit_clearance could not be read, so it was not issued. Re-issue it with a clearanceId you have already proposed.",
+							}),
+						},
+					}
+				}
+
+				// "unresolved" is a legitimate outcome: the tool answers "unknown clearance X —
+				// propose it first", which is a real refusal the model reads. Passing it through
+				// preserves that path.
+				if (parsed === "unresolved") return transition
+				const clearance = parsed
 
 				const turnId = `turn-${++desk.counter}`
 				desk.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, desk.getId(), {
@@ -244,34 +268,47 @@ export class InterlockDesk extends Participant {
 	}
 
 	/**
-	 * A commit may carry the full clearance (after a narrowing rewrote it) or only a clearanceId
-	 * (as a model proposes by id and then commits by id). Resolve the latter through the intent
-	 * registry — the thing `intent.forming` announced. Structural reads throughout: payloads lose
-	 * their prototype in transit (API-NOTES #12).
+	 * Read a pending commit. THREE outcomes, not two — and the distinction is load-bearing.
+	 *
+	 * This used to return `null` for all three failures, and the call site did `return transition`,
+	 * so an unreadable commit passed through UNTOUCHED: no airlock hold, no joint-hazard check, no
+	 * premise check. A path around the mechanism this project is named after, in that mechanism's
+	 * own file.
+	 *
+	 *   "malformed"   unparseable JSON, or no clearanceId. Nobody can act on this. REFUSE it.
+	 *   "unresolved"  well-formed, but names a clearance never proposed. LEGITIMATE — the tool
+	 *                 itself answers "unknown clearance X — propose it first", which is a real
+	 *                 refusal the model reads. Refusing here too would break that path.
+	 *   a clearance   hold it in the airlock, as designed.
+	 *
+	 * A commit may also carry the full clearance (after a narrowing rewrote it) or only a
+	 * clearanceId, since a model proposes by id and commits by id — hence the intent registry.
+	 * Structural reads throughout: payloads lose their prototype in transit (API-NOTES #12).
 	 */
-	private parse(call: FunctionCallItem): PendingClearance | null {
-		try {
-			const args = JSON.parse(call.args) as {
-				clearanceId?: string
-				callsign?: string
-				command?: PendingClearance["command"]
-				committedTick?: number
-				effectiveTick?: number
-			}
-			if (typeof args.clearanceId !== "string") return null
-
-			if (typeof args.callsign === "string" && args.command !== undefined) {
-				return {
-					id: args.clearanceId,
-					callsign: args.callsign,
-					command: args.command,
-					committedTick: args.committedTick ?? 0,
-					effectiveTick: args.effectiveTick ?? 0,
-				}
-			}
-			return this.deps.intents.resolve(args.clearanceId) ?? null
-		} catch {
-			return null
+	private parse(call: FunctionCallItem): PendingClearance | "malformed" | "unresolved" {
+		let args: {
+			clearanceId?: string
+			callsign?: string
+			command?: PendingClearance["command"]
+			committedTick?: number
+			effectiveTick?: number
 		}
+		try {
+			args = JSON.parse(call.args)
+		} catch {
+			return "malformed"
+		}
+		if (typeof args.clearanceId !== "string") return "malformed"
+
+		if (typeof args.callsign === "string" && args.command !== undefined) {
+			return {
+				id: args.clearanceId,
+				callsign: args.callsign,
+				command: args.command,
+				committedTick: args.committedTick ?? 0,
+				effectiveTick: args.effectiveTick ?? 0,
+			}
+		}
+		return this.deps.intents.resolve(args.clearanceId) ?? "unresolved"
 	}
 }

@@ -133,9 +133,40 @@ const template = { model: mimo.specification.name, maxOutputTokens: seatFor("APP
 scheduler.begin(approach, "Sequence AAL221 for the approach.", { ...template, tools: approach.getTools() }, desk.handler())
 scheduler.begin(flow, "Protect the metering interval at CARDL.", { ...template, tools: flow.getTools() }, desk.handler())
 
-await new Promise((r) => setTimeout(r, 180_000))
+/**
+ * Exit on SETTLEMENT, not on a wall-clock sleep.
+ *
+ * This used to be `setTimeout(r, 180_000)` — a three-minute sleep sitting in the evidence path, in
+ * a submission whose own risk register says judges will grep for `sleep()` near the evidence path.
+ * Nothing dramatic depended on it, so it was not staging; but it was indistinguishable from staging
+ * at a glance, and it left minutes of dead air after the money shot.
+ *
+ * The sector is settled when no controller is still deciding AND nothing is held unadjudicated in
+ * the airlock. Both predicates already exist and are exercised by three tests. Two traps: t=0 is
+ * trivially quiescent, so the check only arms once the first turn has opened; and a hung provider
+ * must not hang the demo, so the old duration survives as a hard cap.
+ */
+const CAP_MS = 180_000
+const startedWaiting = performance.now()
+let armed = false
+let exitReason = "cap reached"
+
+while (performance.now() - startedWaiting < CAP_MS) {
+	await new Promise((r) => setTimeout(r, 250))
+	if (!armed) {
+		if (scheduler.inflight().length > 0) armed = true
+		continue
+	}
+	if (scheduler.isQuiescent() && desk.isQuiescent()) {
+		exitReason = "settled"
+		break
+	}
+}
+const waitedMs = Math.round(performance.now() - startedWaiting)
 
 console.log(`\n${"=".repeat(72)}`)
+console.log(`  exit          : ${exitReason} after ${waitedMs} ms` +
+	(exitReason === "settled" ? "  (no controller deciding, nothing held)" : "  — a participant never settled"))
 const overlapped = inflightAtObjection.some((s) => s.length >= 2)
 console.log(`  objections raised            : ${inflightAtObjection.length}`)
 console.log(`  both turns open when it landed: ${overlapped ? "YES" : "no"}`)

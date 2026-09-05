@@ -57,7 +57,23 @@ export class PremiseSentinel extends Participant {
 			async handle(transition: ExecutableTransition): Promise<ExecutableTransition> {
 				const { call } = transition.input as { call: FunctionCallItem }
 				const premise = sentinel.parse(call)
-				if (premise === null) return transition
+				if (premise === "malformed") {
+					// Same hole as the interlock desk had: an unreadable commit used to pass
+					// through untouched, skipping the premise check entirely.
+					sentinel.deps.outbox.publish(EventType.TRANSITION_SUBSTITUTED, sentinel.getId(), {
+						reason: "malformed commit_clearance — refused before the premise check",
+						callId: call.callId,
+					})
+					return {
+						nextStateId: "model_message",
+						input: {
+							answer: ModelMessageItem.rehydrate({
+								text: "[refused] Your commit_clearance could not be read, so its premise could not be checked and it was not issued.",
+							}),
+						},
+					}
+				}
+				if (premise === "unresolved") return transition
 
 				const subject = sentinel.deps.world().find((a) => a.callsign === premise.callsign)
 				if (!subject) return transition
@@ -94,13 +110,16 @@ export class PremiseSentinel extends Participant {
 		}
 	}
 
-	private parse(call: FunctionCallItem): { clearanceId: string; callsign: string; command: AircraftState extends never ? never : Record<string, number> } | null {
+	/** Three outcomes, mirroring the interlock desk. Only "malformed" is refused. */
+	private parse(call: FunctionCallItem): { clearanceId: string; callsign: string; command: Record<string, number> } | "malformed" | "unresolved" {
+		let args: { clearanceId?: string; callsign?: string; command?: Record<string, number> }
 		try {
-			const args = JSON.parse(call.args) as { clearanceId?: string; callsign?: string; command?: Record<string, number> }
-			if (typeof args.clearanceId !== "string" || typeof args.callsign !== "string" || !args.command) return null
-			return { clearanceId: args.clearanceId, callsign: args.callsign, command: args.command }
+			args = JSON.parse(call.args)
 		} catch {
-			return null
+			return "malformed"
 		}
+		if (typeof args.clearanceId !== "string") return "malformed"
+		if (typeof args.callsign !== "string" || !args.command) return "unresolved"
+		return { clearanceId: args.clearanceId, callsign: args.callsign, command: args.command }
 	}
 }

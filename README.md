@@ -134,6 +134,52 @@ The seam is also **non-invasive**: the default policy reproduces the previous be
 all 247 tests pass unchanged with it installed. If that were not true, every determinism claim in
 Phases 2–5 would be suspect.
 
+### Why several Mozaik surfaces are unused
+
+Phase 7 was scoped as "full surface coverage". We audited seven candidates adversarially and
+**built none of them.** Each was asked to earn its place with one sentence naming a domain need,
+without mentioning the framework. Where that sentence could not be written honestly, the surface
+was cut:
+
+- **A supervisor that proposes a re-split** — nothing in this sector is ever overloaded. There is
+  no load metric anywhere in the repo, so it would have needed us to invent the saturation it
+  responds to. Authority already redistributes at runtime through the bid-and-grant standing market.
+- **A capability-gated human seat** — a seat defined by powers the other participants lack is the
+  coordinator this whole design removes. Modelled honestly it is just another bidder into the
+  standing market, which we can already write.
+- **A relief controller spawned mid-negotiation** — two concurrent holders demonstrate contested
+  authority as completely as four would.
+- **Remote tools over MCP** — the decisive information a controller must spend its window to get
+  already comes from a pilot who has a stake, private constraints, and the ability to refuse. That
+  is strictly harder than a server that cannot argue back.
+- **Structured output** — it governs the *message* channel (`output_config.format`), while our
+  safety-critical boundary is a *tool call* whose schema already ships as `input_schema` with
+  required fields. It would not have typed the thing that needed typing.
+- **Streaming and mid-generation abort** — substitution already stops a void clearance before it
+  can become an action, so aborting would change *when* discarded work stops, not *whether* a wrong
+  instruction executes.
+
+The audit's sharpest finding was about our own reasoning: we had argued *"`setHandlers` is only used
+for construction wiring, therefore Adaptivity is our weakest leg"* — which defines a leg of an
+architectural thesis by a call site, and that inference generated all seven candidates.
+
+### The hole that audit found instead
+
+`InterlockDesk.parse` and `PremiseSentinel.parse` returned `null` for any unreadable commit, and
+both call sites then passed the transition through **untouched** — so a malformed
+`commit_clearance` routed around the airlock hold *and* the premise check. A path around the
+mechanism this project is named after, in that mechanism's own file.
+
+Only two of three failure modes were the bypass. A well-formed commit naming an unproposed
+clearance is legitimate — the tool answers *"unknown clearance X — propose it first"* — so refusing
+it too would have broken a working path. `parse` now returns
+`PendingClearance | "malformed" | "unresolved"`, and only `"malformed"` is refused, announced, and
+substituted with a message the controller reasons about.
+
+The demo also no longer ends on a 180-second sleep sitting in the evidence path — it exits when the
+sector is **settled**: no controller still deciding, nothing held unadjudicated. It now finishes in
+about 3 seconds and prints why it stopped.
+
 ### Three limitations, stated plainly
 
 **One vendor, not three.** The design called for one seat of final authority per vendor, so a
@@ -204,6 +250,7 @@ takes 150 s, and turning 20° then establishing 0.60 NM of offset takes 31.93 s.
 | 4 | Live controllers | ✅ |
 | 5 | Live pilots, private constraints | ✅ |
 | 6 | RETRACE — schedule exploration | ✅ |
+| 7 | Truth pass — zero new surfaces | ✅ |
 
 ## Reproduce
 

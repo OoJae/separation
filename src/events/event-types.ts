@@ -8,7 +8,6 @@ export const EventType = {
 	// substrate
 	CAS_REJECTED: "cas.rejected",
 	PARTICIPANT_HALTED: "participant.halted",
-	SCENARIO_QUIESCED: "scenario.quiesced",
 	TURN_STARTED: "turn.started",
 	TURN_ENDED: "turn.ended",
 
