@@ -1,6 +1,10 @@
 import type { Tool } from "@mozaik-ai/core"
 import type { AircraftState, Callsign } from "../../domain/airspace/aircraft-state"
-import { isAdmissibleTurnRate } from "../../domain/airspace/units"
+import { isAdmissibleTurnRate, normaliseMdeg } from "../../domain/airspace/units"
+
+/** Approach-speed envelope for the aircraft in this sector. Outside it, a clearance is nonsense. */
+const MIN_GROUNDSPEED_KT = 120
+const MAX_GROUNDSPEED_KT = 350
 import { probe } from "../../domain/feasibility/prober"
 import { DESCENT_FPM } from "../../scenarios/braid-2"
 import type { IntentRegistry } from "../../domain/interlock/intent-registry"
@@ -152,15 +156,28 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 				targetGroundspeedKt?: number; turnRateMdegPerS?: number; plannedMarginNm: number
 			}) => {
 				const command: Record<string, number> = {}
-				if (args.targetAltFt !== undefined) {
+				if (args.targetAltFt !== undefined && Number.isFinite(args.targetAltFt)) {
 					command.targetAltFt = args.targetAltFt
 					command.verticalRateFpm = DESCENT_FPM
 				}
-				if (args.targetHeadingDeg !== undefined) command.targetHeadingMdeg = Math.round(args.targetHeadingDeg) * 1000
+				if (args.targetHeadingDeg !== undefined && Number.isFinite(args.targetHeadingDeg)) {
+					command.targetHeadingMdeg = normaliseMdeg(Math.round(args.targetHeadingDeg) * 1000)
+				}
 				// The catalogue offers speed reductions, so a controller has to be able to issue one.
 				// It could not: this tool had no speed field, so an option the prober published was
 				// literally unspeakable and the axis was unreachable from the decision.
-				if (args.targetGroundspeedKt !== undefined) command.targetGroundspeedKt = Math.round(args.targetGroundspeedKt)
+				// Validated, not trusted. This is where MODEL OUTPUT becomes world state, and a
+				// non-finite speed propagates straight into position: x becomes NaN, every
+				// comparison against it is false, and loss of separation stops being detectable at
+				// all. A negative speed flies the aircraft backwards. Out-of-envelope values are
+				// dropped rather than clamped, so a nonsense clearance is a no-op on that axis
+				// instead of a plausible-looking lie.
+				if (args.targetGroundspeedKt !== undefined
+					&& Number.isFinite(args.targetGroundspeedKt)
+					&& args.targetGroundspeedKt >= MIN_GROUNDSPEED_KT
+					&& args.targetGroundspeedKt <= MAX_GROUNDSPEED_KT) {
+					command.targetGroundspeedKt = Math.round(args.targetGroundspeedKt)
+				}
 				if (args.turnRateMdegPerS !== undefined && isAdmissibleTurnRate(args.turnRateMdegPerS)) {
 					// Guarded, not trusted: an inadmissible rate would leave a fractional milli-degree
 					// per step and quietly destroy the exactness the determinism story rests on.

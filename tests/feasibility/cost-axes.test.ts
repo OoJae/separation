@@ -11,9 +11,10 @@ import {
 import { loadFactorFor, probe } from "../../src/domain/feasibility/prober"
 import { controllerTools } from "../../src/participants/controller/tools"
 import { HORIZON_S, INITIAL } from "../../src/scenarios/braid-2"
-import { MEDICAL_AIRCRAFT } from "../../src/scenarios/pilot-sheets"
+import { MEDICAL_AIRCRAFT, MEDICAL_CALLSIGN } from "../../src/scenarios/pilot-sheets"
 
 const world = [...INITIAL, MEDICAL_AIRCRAFT]
+const announced: { command: Record<string, number> }[] = []
 const optionsFor = (callsign: string) =>
 	probe({ subject: callsign, world, forGeneration: 1, horizonSec: HORIZON_S, nowSec: 0 }).options
 const costOf = (callsign: string, template: string) =>
@@ -176,6 +177,32 @@ describe("the option catalogue is issuable, not just publishable", () => {
 		)
 		const unspeakable = [...produced].filter((f) => !expressible.has(f))
 		expect(unspeakable).toEqual([])
+	})
+
+	it("refuses model output that would corrupt the world rather than flying it", async () => {
+		const propose = controllerTools({
+			world: () => [...INITIAL, MEDICAL_AIRCRAFT],
+			generation: () => 1, nowSec: () => 0, horizonSec: HORIZON_S,
+			position: "APPROACH", participantId: () => "x",
+			outbox: { publish: () => {} } as never,
+			intents: { announce: (c: never) => announced.push(c as never), resolve: () => undefined } as never,
+		}).find((t) => t.name === "propose_clearance")!
+
+		// A non-finite speed propagates into position; every comparison against NaN is false, so
+		// loss of separation would stop being detectable at all. It must never reach a Command.
+		for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -100, 0, 1e9]) {
+			await propose.invoke({
+				clearanceId: `bad-${bad}`, callsign: MEDICAL_CALLSIGN,
+				targetGroundspeedKt: bad, plannedMarginNm: 4,
+			} as never)
+		}
+		// A value inside the envelope still gets through, so this is validation and not a veto.
+		await propose.invoke({
+			clearanceId: "good", callsign: MEDICAL_CALLSIGN,
+			targetGroundspeedKt: 210, plannedMarginNm: 4,
+		} as never)
+		expect(announced.filter((c) => c.command.targetGroundspeedKt !== undefined)).toHaveLength(1)
+		expect(announced.at(-1)!.command.targetGroundspeedKt).toBe(210)
 	})
 
 	it("and an inadmissible turn rate is refused rather than silently flown", () => {
