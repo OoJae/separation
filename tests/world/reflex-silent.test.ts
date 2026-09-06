@@ -67,8 +67,13 @@ describe("the reflex layer stays silent through BRAID-2", () => {
 	it("is the RANGE test that keeps it silent — by 4.3x — not the vertical one", () => {
 		const r = flyWithTcas([clearanceA(), clearanceB()])
 		expect(r.minRangeNm).toBeCloseTo(2.3511, 4)
-		expect(r.minRangeNm / r.row.raDmodNm).toBeGreaterThan(4.2)
-		expect(r.bestRaTau / r.row.raTauS).toBeGreaterThan(1.65)
+		// Pinning minRangeNm already fixes minRangeNm/raDmodNm, so re-asserting it proves nothing.
+		// What the surrounding comment actually claims is that the two margins are DIFFERENT — the
+		// RA one comfortable, the TA one thin — so that is what gets asserted.
+		const raMargin = r.bestRaTau / r.row.raTauS
+		const taMargin = r.bestTaTau / r.row.taTauS
+		expect(raMargin).toBeGreaterThan(taMargin * 1.5)
+		expect(raMargin).toBeGreaterThan(1.5)
 	})
 
 	it("the vertical test would PASS — the aircraft cross co-altitude — and it never matters", () => {

@@ -24,10 +24,16 @@ const costOf = (callsign: string, template: string) =>
  * THE COST AXES ARE GENUINELY INDEPENDENT — which they were not.
  *
  * `cost.ts` has always advertised "four genuinely incommensurable axes". Three of the four were
- * not: `arrivalDelaySec` was an exact rescaling of `deltaTrackMilesNm`, `peakLoadFactor` was the
- * hardcoded constant 1.06 for every turn regardless of angle or speed, and the speed-reduction
- * option used to justify fuel as a separate axis did not exist — `Command` had no speed field.
- * All six turns were therefore totally ordered and a solver could have taken an argmax.
+ * not: `peakLoadFactor` was the hardcoded constant 1.06 for every turn regardless of angle or
+ * speed, the speed-reduction option used to justify fuel as a separate axis did not exist
+ * (`Command` had no speed field), and fuel mixed absolute with marginal conventions so its values
+ * were not comparable with each other. All six turns were totally ordered.
+ *
+ * ONE OF THE FOUR IS STILL NOT INDEPENDENT, and it is better said than implied: WITHIN the turn
+ * family `arrivalDelaySec` remains exactly `deltaTrackMilesNm / speed`, because a turn's delay IS
+ * the extra distance it flies. That is physics, not a defect, and it is why the turns separate on
+ * fuel and g rather than on delay. Across families the axes are genuinely independent — a descent
+ * arrives sooner with no extra distance, a speed reduction arrives later with none either.
  *
  * These tests pin the repair. They are the reason "geometry cannot choose between them" is now a
  * property of the code rather than a sentence in a README.

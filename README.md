@@ -95,7 +95,8 @@ became worth its cost.
 **Asking is not free**, which is what makes it a judgement. `query_pilot`'s `invoke()` awaits the
 reply and `FunctionCallState.run` awaits the tool, so the controller's whole turn is parked for the
 length of a pilot's turn — ~13 s against a ~44 s window. Guessing is not free either: a refused
-clearance is not flown, and the controller must plan again — a whole extra turn, 12–17 s measured.
+clearance is not flown, and the controller must plan again — a whole extra turn, and a turn is two
+inference rounds: **22.6–34.6 s** against the ~13 s a query costs.
 
 `npm run verify:social-information` **asserts the loop and reports the choice.** It fails if the
 mechanism breaks — a clearance that never reaches the crew, a refusal that forces no re-plan, a
@@ -255,8 +256,9 @@ differently. Seeds vary scenario conditions only.
 
 ### Why several Mozaik surfaces are unused
 
-Phase 7 was scoped as "full surface coverage". We audited seven candidates adversarially and
-**built none of them.** Each was asked to earn its place with one sentence naming a domain need,
+Phase 7 was scoped as "full surface coverage". We audited seven candidates adversarially and cut
+**six of them**; the seventh, quiescence, survives only as the demo's exit condition — it replaced a
+fixed 180-second sleep sitting in the evidence path, which is the whole of what it earned. Each was asked to earn its place with one sentence naming a domain need,
 without mentioning the framework. Where that sentence could not be written honestly, the surface
 was cut:
 
@@ -301,7 +303,7 @@ The demo also no longer ends on a 180-second sleep sitting in the evidence path 
 sector is **settled**: no controller still deciding, nothing held unadjudicated. It now finishes in
 about 3 seconds and prints why it stopped.
 
-### Three limitations, stated plainly
+### Five limitations, stated plainly
 
 **One vendor, not three.** The design called for one seat of final authority per vendor, so a
 peer's objection would come from a genuinely different prior. Only one endpoint is configured, so
@@ -372,7 +374,7 @@ exists because SWA455's turn steals lateral separation while AAL221's descent st
 Commit both later and the turn has less distance left to run, so the aircraft pass further apart,
 and past some instant they pass *legally*. There is then nothing for the interlock to catch.
 
-That lifetime was **27.5 s**, while the measured latency puts concurrent commits at **22.6–34.6 s**.
+That lifetime was **27.1 s**, while the measured latency puts concurrent commits at **22.6–34.6 s**.
 The hazard was alive for the fast half of the range and dead for the slow half — a coin flip, not a
 theorem. The cause was the same re-derivation as above not going far enough: Phase 4 correctly moved
 the gates and the band when latency was measured, but nobody re-tuned the *encounter*, and the

@@ -4,6 +4,7 @@
  */
 import { flyEncounter } from "../src/domain/airspace/encounter"
 import { admissibleBandMs } from "../src/domain/interlock/band"
+import { MAX_TURN_MS } from "../src/domain/interlock/decision-latency"
 import { WINDOW_A, WINDOW_B } from "../src/scenarios/braid-2"
 import { HORIZON_S, INITIAL_ARMED, clearanceA, clearanceB } from "../src/scenarios/braid-2"
 
@@ -72,25 +73,45 @@ console.log("ROBUSTNESS\n")
 	console.log(`     min horizontal ${minH.toFixed(4)}-${maxH.toFixed(4)} NM, loss ${minLoss.toFixed(2)}-${maxLoss.toFixed(2)}s`)
 }
 
-// 2. Initial-condition jitter.
+let jitterOk = true
+const shortfalls: string[] = []
+
+// 2. Initial-condition jitter, at BOTH ends of the concurrent commit range.
+//
+// Jitter at t=0 alone says nothing about the case that matters — the slowest pair of turns, which
+// is exactly where the pre-recalibration geometry stopped producing a hazard at all. The commit
+// message for that fix claimed "729/729 at both ends"; nothing shipped checked it until now.
 {
 	const dxs = [-0.1, 0, 0.1], dys = [-0.1, 0, 0.1], dvs = [-1, 0, 1], dzs = [-20, 0, 20]
-	let hit = 0, total = 0, singles = 0
-	let minH = Infinity, maxH = -Infinity
-	for (const dx of dxs) for (const dy of dys) for (const dv of dvs) for (const dz of dzs) {
-		for (const dx2 of dxs) for (const dy2 of dys) {
-			total++
-			const a: AircraftState = { ...AAL221_ARMED, x: AAL221_ARMED.x + dx, y: AAL221_ARMED.y + dy, groundspeedKt: 250 + dv, altFt: 9000 + dz }
-			const b: AircraftState = { ...SWA455, x: SWA455.x + dx2, y: SWA455.y + dy2 }
-			const init = [a, b] as const
-			const r = flyEncounter(init, [clearanceA(), clearanceB()], HORIZON_S)
-			if (r.loss !== null) { hit++; minH = Math.min(minH, r.minHorizontalNm); maxH = Math.max(maxH, r.minHorizontalNm) }
-			if (hazard(init, [clearanceA()]) || hazard(init, [clearanceB()])) singles++
+	for (const commitS of [0, MAX_TURN_MS / 1000]) {
+		let hit = 0, total = 0, singles = 0
+		let minH = Infinity, maxH = -Infinity
+		for (const dx of dxs) for (const dy of dys) for (const dv of dvs) for (const dz of dzs) {
+			for (const dx2 of dxs) for (const dy2 of dys) {
+				total++
+				const a: AircraftState = { ...AAL221_ARMED, x: AAL221_ARMED.x + dx, y: AAL221_ARMED.y + dy, groundspeedKt: 250 + dv, altFt: 9000 + dz }
+				const b: AircraftState = { ...SWA455, x: SWA455.x + dx2, y: SWA455.y + dy2 }
+				const init = [a, b] as const
+				const r = flyEncounter(init, [clearanceA(commitS), clearanceB(commitS)], HORIZON_S)
+				if (r.loss !== null) { hit++; minH = Math.min(minH, r.minHorizontalNm); maxH = Math.max(maxH, r.minHorizontalNm) }
+				if (hazard(init, [clearanceA(commitS)]) || hazard(init, [clearanceB(commitS)])) singles++
+			}
 		}
+		// The bar is explicit rather than implied. At the fast end the envelope is fully covered; at
+		// the slowest concurrent commit three draws of 729 lose the hazard — this envelope jitters
+		// altitude and speed as well as position, which the unit-test grid does not, and those are
+		// the draws that fall out. 99% is the shipped claim, and the exact count is printed so a
+		// change is visible rather than absorbed.
+		if (hit / total < 0.99 || singles !== 0) jitterOk = false
+		if (hit !== total) shortfalls.push(`${total - hit}/${total} at ${commitS.toFixed(2)}s`)
+		console.log(`\n  2. initial jitter +-0.1NM / +-1kt / +-20ft, committed at ${commitS.toFixed(2)}s : ${hit}/${total} produce the joint hazard`)
+		console.log(`     min horizontal ${minH.toFixed(4)}-${maxH.toFixed(4)} NM`)
+		console.log(`     single clearances hazardous in the same envelope: ${singles}/${total}`)
 	}
-	console.log(`\n  2. initial jitter +-0.1NM / +-1kt / +-20ft : ${hit}/${total} produce the joint hazard`)
-	console.log(`     min horizontal ${minH.toFixed(4)}-${maxH.toFixed(4)} NM`)
-	console.log(`     single clearances hazardous in the same envelope: ${singles}/${total}`)
+	if (shortfalls.length > 0) {
+		console.log(`\n     NOT 729/729 everywhere: ${shortfalls.join(", ")} lose the joint hazard.`)
+		console.log(`     Stated rather than rounded up — the claim is 99%, not totality.`)
+	}
 }
 
 // 3. The action set — is the structure legible, or is one magic pair?
@@ -134,4 +155,4 @@ console.log("ROBUSTNESS\n")
 }
 
 console.log(`\n  ${ok && serializationHolds ? "PASS" : "FAIL"} — geometry and window arithmetic both hold`)
-process.exit(ok && serializationHolds ? 0 : 1)
+process.exit(ok && serializationHolds && jitterOk ? 0 : 1)

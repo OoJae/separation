@@ -26,6 +26,7 @@ export type QueryOutcome =
  * controller parked forever on a peer — worth writing up, not worth silently lengthening.
  */
 export class QueryDesk extends Participant {
+	private static instances = 0
 	private readonly waiting = new Map<string, (outcome: QueryOutcome) => void>()
 	private readonly startedAt = new Map<string, number>()
 	private counter = 0
@@ -38,7 +39,11 @@ export class QueryDesk extends Participant {
 			readonly timeoutMs: number
 		},
 	) {
-		super({ id: "query-desk", name: "query-desk", role: "agent", capabilities: ["query.correlate"] }, [])
+		// Unique per instance. mozaik's RuntimeState.addParticipant is a no-op when the id already
+		// exists, so a hardcoded id meant a second desk joined nothing, subscribed to nothing, and
+		// left every query it brokered parked until timeout — silently, with no error anywhere.
+		const seq = ++QueryDesk.instances
+		super({ id: `query-desk-${seq}`, name: `query-desk-${seq}`, role: "agent", capabilities: ["query.correlate"] }, [])
 		this.setHandlers([this.replyHandler()])
 	}
 

@@ -15,7 +15,7 @@ export type CasContext = {
 
 /**
  * THE single mutation path for shared state. There are no bare assignments to any
- * VersionedCell anywhere else in the repo (tests/substrate/single-writer.test.ts).
+ * VersionedCell anywhere else in the repo (tests/substrate/cas-write.test.ts).
  *
  * A stale write is rejected AND ANNOUNCED as `cas.rejected`, never silently retried —
  * "whatever a boundary enforces, it must also announce". Announcing it is what lets the

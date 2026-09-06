@@ -1,7 +1,7 @@
 import type { AircraftState, Callsign } from "../airspace/aircraft-state"
 import { flyEncounter, type Interval, type PendingClearance } from "../airspace/encounter"
 import { madeIt, missedByMs, type ManeuverWindow } from "../airspace/maneuver-window"
-import { secondsToTick, tickToSeconds } from "../airspace/units"
+import { MASTER_TICK_MS, secondsToTick } from "../airspace/units"
 
 export type JointHazard = {
 	/** The clearances that are JOINTLY responsible — none of them causes it alone. */
@@ -83,7 +83,9 @@ export function evaluateJoint(request: JointProbeRequest): JointVerdict {
 
 	for (const clearance of request.pending) {
 		const window = request.windows.get(clearance.id)
-		const committedAtMs = tickToSeconds(clearance.committedTick) * 1000
+		// Integer milliseconds, straight from the integer tick. Going via seconds and multiplying by
+		// a thousand put a float in the middle of the one file whose headline claim is exactness.
+		const committedAtMs = clearance.committedTick * MASTER_TICK_MS
 		if (window !== undefined && !madeIt(window, committedAtMs)) {
 			excluded.push({
 				clearanceId: clearance.id,
@@ -107,8 +109,15 @@ export function evaluateJoint(request: JointProbeRequest): JointVerdict {
  * Re-express a clearance's absolute ticks relative to the instant the world snapshot describes.
  *
  * A clearance committed 5 s before the snapshot is already 5 s into its command lag, so it bites
- * sooner; one committed at the snapshot instant still owes the full lag. Clamping at zero means a
- * clearance already in effect is flown from the first tick, which is what "already in effect" means.
+ * sooner; one committed at the snapshot instant still owes the full lag.
+ *
+ * THE CLAMP IS A LIMITATION, not a definition. A clearance whose effect began before the snapshot is
+ * flown from the first tick as though it were only starting now — the aircraft state it is handed
+ * has ALREADY absorbed part of that manoeuvre, so the early part is applied twice. This projection
+ * therefore assumes clearances are evaluated at or before they take effect, which is what the
+ * airlock does: it holds a commit and adjudicates it before the command lag has elapsed. A partially
+ * flown manoeuvre is outside what this can represent, and saying so is better than a docstring that
+ * calls the clamp correct.
  */
 export function rebaseOnto(clearance: PendingClearance, worldAtMs: number): PendingClearance {
 	if (worldAtMs === 0) return clearance

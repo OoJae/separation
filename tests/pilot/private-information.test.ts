@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@rstest/core"
 import { refusalFor, type PilotSheet } from "../../src/domain/disclosure/pilot-sheet"
+import { WINDOW_A } from "../../src/scenarios/braid-2"
+import { MIN_TURN_MS, ROUNDS_PER_TURN } from "../../src/domain/interlock/decision-latency"
 import { BurnIntegral } from "../../src/domain/disclosure/burn-model"
 import { ClaimLedger } from "../../src/domain/disclosure/claim-ledger"
 import { testAnchored } from "../../src/domain/disclosure/contradiction"
@@ -171,11 +173,19 @@ describe("private information", () => {
 		 * free, and a controller has to judge whether it can spend it — on information whose value
 		 * it cannot know until it has it.
 		 */
+		/**
+		 * Both numbers come from the SHIPPED model now.
+		 *
+		 * This used to define WINDOW_MS = 44_360 and PILOT_TURN_MS = 13_000 inside the test body and
+		 * then assert a relationship between the two literals. It could not fail for any reason
+		 * involving the code — recalibrate the scenario, re-measure the latency, delete the window
+		 * model entirely, and it stayed green.
+		 */
 		it("costs a real fraction of the manoeuvre window", async () => {
-			const WINDOW_MS = 44_360
-			const PILOT_TURN_MS = 13_000
-			expect(PILOT_TURN_MS / WINDOW_MS).toBeGreaterThan(0.25)
-			expect(PILOT_TURN_MS).toBeLessThan(WINDOW_MS)
+			const windowMs = WINDOW_A.windowMs                  // from the scenario's own physics
+			const pilotTurnMs = MIN_TURN_MS / ROUNDS_PER_TURN   // one measured inference round
+			expect(pilotTurnMs / windowMs).toBeGreaterThan(0.2)
+			expect(pilotTurnMs).toBeLessThan(windowMs)
 		})
 
 		it("reports a timeout as an outcome rather than throwing", async () => {

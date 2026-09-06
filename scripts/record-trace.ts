@@ -13,9 +13,9 @@
 import "dotenv/config"
 import { RuntimeState, SituationSpecification, createHuman, defineRuntime } from "@mozaik-ai/core"
 import type { SituationContext, SituationHandler } from "@mozaik-ai/core"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { IntentRegistry } from "../src/domain/interlock/intent-registry"
-import { TraceWriter } from "../src/instrument/trace-writer"
+import { TraceWriter, type Trace } from "../src/instrument/trace-writer"
 import { BudgetGuard } from "../src/infrastructure/inference/budget-guard"
 import { InferenceCache } from "../src/infrastructure/inference/inference-cache"
 import { LiveInferenceRunner } from "../src/infrastructure/inference/live-runner"
@@ -143,9 +143,9 @@ scheduler.begin(flow, OPENING.FLOW, { ...template, tools: flow.getTools() }, des
 await new Promise((r) => setTimeout(r, 400))
 
 /**
- * Fly 380 simulated seconds at roughly 10x real time.
+ * Fly 380 simulated seconds at a pace derived from the airlock's settle window.
  *
- * This used to run at ~400x, finishing the whole encounter in about one real second — which meant
+ * This used to run flat out, finishing the whole encounter in about one real second — which meant
  * the controllers, thinking on the wall clock for tens of seconds, could never commit anything
  * while the world was still moving. Their clearances were therefore recorded but never flown, and
  * the trace showed a hardcoded BRAID-2 instead of the decisions the models actually made.
@@ -187,7 +187,7 @@ await new Promise<void>((resolve) => {
 })
 
 // Let the airlock settle before finishing, so the turns actually close and the narrowing lands.
-// The world flew 380 simulated seconds in about one real second; the desk's settle timer runs on
+// The world's flight is sized at 4x the settle window (see TICKS_PER_INTERVAL); the desk's timer runs on
 // the real clock, so it has not fired yet.
 const SETTLE_CAP_MS = 15_000
 const settleStart = performance.now()
@@ -199,6 +199,22 @@ while (performance.now() - settleStart < SETTLE_CAP_MS) {
 const trace = tracer.finish()
 const overlaps = TraceWriter.overlaps(trace)
 mkdirSync("fixtures", { recursive: true })
+/**
+ * This is a documented reproduce command that OVERWRITES a committed fixture, so it will leave the
+ * working tree dirty — and that looked like the trace failing to reproduce. It is worth being exact
+ * about what is and is not deterministic here.
+ *
+ * The FRAMES are the physics: 380 world snapshots from the deterministic integrator, byte-identical
+ * on every run. The turn spans and event timings are not — the controllers think on the wall clock,
+ * so when their turns open and close differs by milliseconds between runs. Rather than hide the
+ * diff, the run checks the deterministic half against whatever is already committed and says so.
+ */
+const previous = existsSync("fixtures/trace.json")
+	? (JSON.parse(readFileSync("fixtures/trace.json", "utf8")) as Trace)
+	: null
+const framesReproduce = previous !== null
+	&& JSON.stringify(previous.frames) === JSON.stringify(trace.frames)
+
 writeFileSync("fixtures/trace.json", JSON.stringify(trace))
 
 console.log(`  frames : ${trace.meta.frames}   turns: ${trace.meta.turns}   events: ${trace.meta.events}   beats: ${trace.beats.length}`)
@@ -209,5 +225,9 @@ console.log(`  OVERLAPPING TURNS: ${overlaps.length}` + (overlaps.length > 0
 	? `  ${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${o.seconds.toFixed(1)}s of simulated time`).join(", ")}`
 	: "  — no two agents were ever thinking at once"))
 for (const b of trace.beats) console.log(`  beat   : ${b.kind.padEnd(9)} ${b.text}`)
+console.log(`  frames    : ${previous === null ? "no previous trace to compare"
+	: framesReproduce ? "byte-identical to the committed trace — the physics reproduces exactly"
+	: "DIFFER from the committed trace — the integrator is not reproducing"}`)
+console.log(`              (turn spans and event times are wall clock, so those DO differ per run)`)
 console.log(`\n  wrote fixtures/trace.json (${(JSON.stringify(trace).length / 1024).toFixed(0)} KB)`)
 process.exit(overlaps.length > 0 && trace.meta.frames > 0 ? 0 : 1)

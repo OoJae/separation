@@ -4,7 +4,7 @@
  * WHY THIS EXISTS (docs/API-NOTES.md #9): `SemanticEvent.create` stamps `new Date()`
  * internally, so any system wanting deterministic replay must avoid the static factory
  * and construct events with an injected time. Nothing under `src/` may call `Date.now()`,
- * `new Date()` or `SemanticEvent.create` — enforced by tests/substrate/no-wall-clock.test.ts.
+ * `new Date()` or `SemanticEvent.create` — enforced by tests/substrate/invariants.test.ts.
  */
 
 import { currentPolicy } from "../retrace/schedule"

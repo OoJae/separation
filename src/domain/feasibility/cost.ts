@@ -14,7 +14,7 @@
  * ONE HONEST ASYMMETRY: a left and a right turn of the same magnitude and rate have IDENTICAL cost
  * vectors, because cost does not see traffic. What separates them is `margins`, which is geometry
  * and deliberately not a cost. So the catalogue contains genuinely tied pairs, and that is a fact
- * about the world rather than a defect — tests/feasibility/prober.ts asserts it stays true.
+ * about the world rather than a defect — tests/feasibility/cost-axes.test.ts asserts it stays true.
  */
 export type CostVector = {
 	/** Extra track miles flown, NM. */

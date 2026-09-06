@@ -7,6 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import type { AircraftState } from "../src/domain/airspace/aircraft-state"
 import { ARMS, contentDiffers, runArm, type ArmResult } from "../src/ablation/arms"
+import { MAX_TURN_MS, MIN_TURN_MS } from "../src/domain/interlock/decision-latency"
 import { Rng } from "../src/support/rng"
 import {
 	AAL221, HORIZON_S, SWA455, WINDOWS, clearanceA, clearanceB, narrowingCandidatesForA,
@@ -29,7 +30,16 @@ const SAFE_TARGETS = [7_000, 8_000]            // levels off legally separated
 function inputsFor(seed: number) {
 	const rng = Rng.fromSeed(`ablation-${seed}`)
 	const jitter = () => (rng.nextInt(0, 20) - 10) / 100        // +-0.10 NM
-	const commitAt = () => rng.nextInt(0, 9) / 2                 // 0 - 4.5 s
+	/**
+	 * Commit times drawn from the range the architecture ACTUALLY decides in.
+	 *
+	 * This drew 0-4.5 s, which was right for the latency ASSUMED in Phase 3 and 7.7x too narrow for
+	 * the latency MEASURED in Phase 4. Every other commit-time grid in the repo was widened when
+	 * that was found; the 600-run ablation — the falsifiability centrepiece — was not, so it went
+	 * on certifying the architecture over a regime it never enters.
+	 */
+	const commitAt = () =>
+		(MIN_TURN_MS + rng.nextInt(0, MAX_TURN_MS - MIN_TURN_MS)) / 1000
 	const hazardous = seed % 2 === 0
 	const targetAltFt = hazardous
 		? HAZARD_TARGETS[rng.nextInt(0, HAZARD_TARGETS.length - 1)]!

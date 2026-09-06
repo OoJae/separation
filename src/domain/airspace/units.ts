@@ -45,7 +45,7 @@ export const TURN_RATE_MDEG_PER_S = 3_000
  * DETERMINISM RULE: a turn rate is only admissible if `rate * INTEGRATE_DT_S` is a whole number of
  * milli-degrees, so the aircraft lands exactly on its target on a determinate tick with no residue.
  * 3000 -> exactly 60, 6000 -> exactly 120. `isAdmissibleTurnRate` enforces it and
- * tests/world/integrator.test.ts asserts it for every rate the catalogue can produce.
+ * tests/feasibility/cost-axes.test.ts asserts it for every rate the catalogue can produce.
  */
 export const EXPEDITE_TURN_RATE_MDEG_PER_S = 6_000
 

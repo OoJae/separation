@@ -56,6 +56,15 @@ function burnFor(maneuver: Maneuver, durationSec: number): number {
  * speed. A constant axis carries no information: it made `peakLoadFactor` decorative and left the
  * six turns totally ordered, so "four incommensurable axes" was really three. Now a faster turn
  * or a higher rate genuinely costs more g, and a speed reduction genuinely costs less.
+ *
+ * A SIMPLIFICATION WORTH STATING, because the numbers are checkable and a reader who flies will
+ * check them. At 250 kt the model's standard rate implies 34.5 degrees of bank, and the expedited
+ * rate 53.9 degrees at 1.70 g — both above the 25-30 degrees an airliner would actually use in a
+ * terminal area. The reason is that this model turns at a FIXED groundspeed: a real aircraft slows
+ * before it turns hard, and nothing here couples the two axes. The formula is right and the inputs
+ * are the scenario's; the bank it implies at 250 kt is aggressive, and "expedite" should be read as
+ * the catalogue's steepest option rather than as a manoeuvre a captain would fly with passengers.
+ * The axis is used to ORDER options against each other, and for that the relative values hold.
  */
 export function loadFactorFor(groundspeedKt: number, turnRateMdegPerS: number): number {
 	const vMs = groundspeedKt * KT_TO_M_PER_S
@@ -97,13 +106,24 @@ export function probe(request: ProbeRequest): FeasibleSet {
 	const excluded: ExcludedOption[] = []
 
 	for (const maneuver of maneuverCatalogue(subject.headingMdeg)) {
+		// A manoeuvre that asks for what the aircraft is already doing costs nothing on every axis,
+		// and an all-zero cost vector DOMINATES every real option — handing a solver a free argmax
+		// and quietly emptying the Pareto frontier. Not an option, so not in the set.
+		if (isNoOp(maneuver, subject)) continue
 		const optionId = `${subject.callsign}/${maneuver.template}`
 		const clearance: PendingClearance = {
 			id: optionId,
 			callsign: subject.callsign,
 			command: maneuver.command,
-			committedTick: secondsToTick(request.nowSec),
-			effectiveTick: secondsToTick(request.nowSec),
+			// RELATIVE TO THE WORLD SUPPLIED, which is what flyEncounter integrates from.
+			//
+			// These were `secondsToTick(request.nowSec)`. The world handed in is already the world
+			// AT nowSec, so stamping the clearance with nowSec too delayed the manoeuvre by that
+			// much a second time — the same clearance-tick/world-clock mismatch the joint prober
+			// calls unrepresentable, sitting in its sibling. It was latent only because every caller
+			// passes nowSec 0. `nowSec` is metadata for availability windows and nothing else.
+			committedTick: 0,
+			effectiveTick: 0,
 		}
 
 		let worstHorizontal = Number.POSITIVE_INFINITY
@@ -145,6 +165,15 @@ export function probe(request: ProbeRequest): FeasibleSet {
 	return makeFeasibleSet(request.subject, request.forGeneration, options, excluded)
 }
 
+/** Does this manoeuvre ask the aircraft for something it is already doing? */
+function isNoOp(maneuver: Maneuver, subject: AircraftState): boolean {
+	const { targetAltFt, targetHeadingMdeg, targetGroundspeedKt } = maneuver.command
+	if (targetAltFt !== undefined && targetAltFt !== subject.altFt) return false
+	if (targetHeadingMdeg !== undefined && targetHeadingMdeg !== subject.headingMdeg) return false
+	if (targetGroundspeedKt !== undefined && targetGroundspeedKt !== subject.groundspeedKt) return false
+	return true
+}
+
 function costOf(maneuver: Maneuver, subject: AircraftState, horizonSec: number): CostVector {
 	const speedNmPerSec = subject.groundspeedKt * KT_TO_NM_PER_S
 
@@ -157,7 +186,10 @@ function costOf(maneuver: Maneuver, subject: AircraftState, horizonSec: number):
 		// spends MORE of the horizon on the new heading and therefore costs slightly MORE track
 		// miles — not fewer. What it buys is FUEL: half the time in the expensive turning regime.
 		// The trade is fuel and time against track miles and g, and it is genuinely three-sided.
-		const offTrackFraction = (horizonSec - turnDurationSec) / horizonSec
+		// Clamped: horizonSec is a free caller parameter, and a horizon shorter than the turn itself
+		// would make this negative — handing back NEGATIVE track miles and a turn that dominates
+		// everything by appearing to save distance.
+		const offTrackFraction = Math.min(1, Math.max(0, (horizonSec - turnDurationSec) / horizonSec))
 		const extraNm = speedNmPerSec * horizonSec * oneMinusCos(degrees) * offTrackFraction
 		return {
 			deltaTrackMilesNm: extraNm,
@@ -197,6 +229,9 @@ function costOf(maneuver: Maneuver, subject: AircraftState, horizonSec: number):
 	}
 
 	// A descent adds no track miles at all, but costs fuel and buys time.
+	// A "descend to 7000" issued to an aircraft already at 7000 changes nothing, so every axis is
+	// zero — and an all-zero cost vector DOMINATES every real option. It is filtered out of the set
+	// rather than costed; see isNoOp at the call site.
 	const feet = Math.abs(subject.altFt - (maneuver.command.targetAltFt ?? subject.altFt))
 	const durationSec = feet / (2_000 / 60)
 	return {

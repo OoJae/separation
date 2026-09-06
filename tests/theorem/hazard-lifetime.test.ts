@@ -76,7 +76,21 @@ describe("the joint hazard outlives every decision the architecture can make", (
 	 */
 	it("is still alive at the serialized instant, so the serialized arm fails on the WINDOW alone", () => {
 		expect(hazardousAt(SERIALIZED_MIN_MS)).toBe(true)
-		expect(hazardLifetimeMs()).toBeGreaterThan(SERIALIZED_MIN_MS)
+
+		/**
+		 * THE THIN ONE, PINNED RATHER THAN HIDDEN.
+		 *
+		 * The 10-second margin asserted above is over the CONCURRENT bound, which the calibration
+		 * clears by ~19 s. The serialized bound is the tight one — the hazard outlives it by well
+		 * under a second — and asserting only the comfortable margin while the load-bearing one is
+		 * 20x thinner is the kind of reassurance that reads as diligence and is not.
+		 *
+		 * This margin does not need to be large. It only needs to exist, and to be visible when it
+		 * stops existing: below it, theorem.test.ts's falsifiability case silently changes meaning.
+		 */
+		const margin = hazardLifetimeMs() - SERIALIZED_MIN_MS
+		expect(margin).toBeGreaterThan(0)
+		expect(margin).toBeLessThan(2_000) // it IS thin; a change that widens it is worth noticing
 	})
 
 	it("does eventually expire — the lifetime is real, not an artefact of the search bound", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@rstest/core"
-import { readdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { HEADING_TABLE_SIZE } from "../../src/domain/airspace/units"
 
@@ -165,6 +165,23 @@ describe("repo invariants (machine-checked, not asserted in prose)", () => {
 	it("the feasibility prober takes no pending-clearance parameter", () => {
 		const prober = code(join("src", "domain", "feasibility", "prober.ts"))
 		expect(/pending\s*[:?]/.test(prober)).toBe(false)
+	})
+
+	/**
+	 * A comment that says "this is machine-checked, go look" is worth less than nothing when the
+	 * path it names does not exist — it invites a reader to verify and then wastes their time, and
+	 * it hides that the check may not exist either. Five such references had rotted:
+	 * tests/feasibility/prober.ts, tests/substrate/no-wall-clock.test.ts (twice),
+	 * tests/substrate/single-writer.test.ts and tests/theorem/window-band.test.ts.
+	 */
+	it("every test file a source comment points at actually exists", () => {
+		const dangling: string[] = []
+		for (const file of [...FILES, ...sourceFiles("scripts")]) {
+			for (const ref of read(file).matchAll(/tests\/[A-Za-z0-9_./-]*\.ts/g)) {
+				if (!existsSync(ref[0])) dangling.push(`${file} -> ${ref[0]}`)
+			}
+		}
+		expect(dangling).toEqual([])
 	})
 
 	it("domain code never imports the framework", () => {

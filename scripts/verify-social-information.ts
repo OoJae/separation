@@ -10,6 +10,7 @@
 import "dotenv/config"
 import { RuntimeState, SituationSpecification, createHuman, defineRuntime } from "@mozaik-ai/core"
 import type { SituationContext, SituationHandler } from "@mozaik-ai/core"
+import { dominates } from "../src/domain/feasibility/cost"
 import { probe } from "../src/domain/feasibility/prober"
 import { IntentRegistry } from "../src/domain/interlock/intent-registry"
 import { BudgetGuard } from "../src/infrastructure/inference/budget-guard"
@@ -83,11 +84,21 @@ const widest = [...set.options].sort((a, b) => b.margins.minHorizontalNm - a.mar
 const shortest = [...set.options].sort((a, b) => a.cost.deltaTrackMilesNm - b.cost.deltaTrackMilesNm)[0]!
 
 console.log(`GEOMETRY LOSES TO SOCIALLY-OBTAINED INFORMATION — ${modelName}\n`)
-console.log(`  What geometry alone offers for the subject aircraft:`)
-console.log(`    widest margin : ${widest.optionId.padEnd(26)} ${widest.margins.minHorizontalNm.toFixed(2)} NM, ${widest.cost.deltaTrackMilesNm.toFixed(1)} extra track miles`)
-console.log(`    shortest track: ${shortest.optionId.padEnd(26)} ${shortest.margins.minHorizontalNm.toFixed(2)} NM, ${shortest.cost.deltaTrackMilesNm.toFixed(1)} extra track miles`)
+// Print the Pareto FRONTIER, not two sorted extremes.
+//
+// "widest margin" and "shortest track" were two independent sorts, and nothing guaranteed the pair
+// they produced was actually incomparable — for a while one dominated the other, under a headline
+// that said geometry could not choose between them. The frontier is what the claim is about, so it
+// is what gets printed, and it is computed rather than asserted.
+const frontier = set.options.filter((o) => !set.options.some((p) => dominates(p.cost, o.cost)))
+console.log(`  What geometry alone offers for the subject aircraft — the Pareto frontier of ${set.options.length}:`)
+for (const o of frontier) {
+	console.log(`    ${o.optionId.padEnd(26)} margin ${o.margins.minHorizontalNm.toFixed(2)} NM, ` +
+		`${o.cost.arrivalDelaySec >= 0 ? "+" : ""}${o.cost.arrivalDelaySec.toFixed(1)} s arrival, ` +
+		`${(o.cost.fuelBurnMg / 1_000_000).toFixed(1)} kg fuel`)
+}
 console.log(`    ordering      : ${set.ordering}`)
-console.log(`\n  Both are separation-safe. Geometry cannot choose between them.\n`)
+console.log(`\n  ${frontier.length} options survive, and no ordering of them exists. Geometry cannot choose.\n`)
 
 /**
  * GROUND TRUTH, held back from the controller and revealed only in the report.

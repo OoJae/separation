@@ -58,7 +58,7 @@ export const REQUIRED_OFFSET_NM = 0.6
  * written here.
  *
  * The original note claimed a shallower turn "buys hazard lifetime". Measurement says the opposite:
- * holding this start position, 20 degrees gives 59.5 s of lifetime and 12 degrees only 53.5 s. The
+ * holding this start position, 20 degrees gives 59.5 s of lifetime and 12 degrees only 53.9 s. The
  * lifetime comes from the CLOSER START, not from the shallower turn.
  *
  * What the shallower turn actually buys is TCAS silence, and that is what pins it. At this position
@@ -110,7 +110,7 @@ export const INITIAL_ARMED = INITIAL
 //
 // What is NOT calibrated is the band itself, which is derived from the controller-latency model
 // in src/domain/interlock/decision-latency.ts and has no geometry in it at all.
-// tests/theorem/window-band.test.ts COMPUTES the band and asserts these gates lie strictly
+// tests/theorem/theorem.test.ts COMPUTES the band and asserts these gates lie strictly
 // inside it — so changing the latency model fails that test and tells you to re-derive the
 // gates, instead of letting a stale calibration slide through.
 // ─────────────────────────────────────────────────────────────────────────────────────────
