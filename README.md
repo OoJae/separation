@@ -40,18 +40,24 @@ Two controllers with contested authority over one aircraft, both mid-turn, on a 
 [tool]             APPROACH -> probe_feasible
 [tool]             FLOW -> probe_feasible
 [tool]             APPROACH -> propose_clearance
-[intent.forming]   APPROACH -> AAL221 (descend-5000)   inflight: 2
+[intent.forming]   APPROACH -> AAL221 (AAL221-desc-4000)   inflight: 2
 [objection.raised] FLOW -> APPROACH: "that descent crosses my metering block at CARDL"
                                        INFLIGHT AT THIS MOMENT: 2
+[tool]             FLOW -> propose_clearance
+[intent.forming]   FLOW -> AAL221 (CARDL-meter-AAL221-slow)   inflight: 2
 [tool]             APPROACH -> commit_clearance
+[tool]             FLOW -> commit_clearance
 
-desk: turn-1 narrowed -> AAL221/descend-5000/peer-7000  {"targetAltFt":7000}
+desk: turn-1 narrowed -> AAL221-desc-4000/peer-7000  {"targetAltFt":7000,"verticalRateFpm":2000}
+desk: turn-2 clean    -> CARDL-meter-AAL221-slow     {"targetGroundspeedKt":210}
 ```
 
 APPROACH announced its intent from *inside* `propose_clearance`, before any clearance existed.
-FLOW objected while **both turns were still open**. APPROACH's held commit resumed with FLOW's
-counter-proposal — a narrowing, not a refusal — and APPROACH's own context now contains the
-rewritten call, so it can reason about having been narrowed.
+FLOW objected while **both turns were still open** — `inflight: 2` is a readout of the scheduler,
+not a caption. APPROACH's held commit resumed with FLOW's counter-proposal — a narrowing, not a
+refusal — and APPROACH's own context now contains the rewritten call, so it can reason about having
+been narrowed. FLOW then issued a real speed reduction of its own, on the axis the prober offers
+and the integrator flies.
 
 `npm run demo:live` replays this from a committed cache with **zero API calls and no key**.
 
@@ -165,7 +171,7 @@ clock only offers timers already due — so no unreachable schedule is even expr
 separates this from a random number generator with a violation counter.
 
 The seam is also **non-invasive**: the default policy reproduces the previous behaviour exactly, and
-all 268 tests pass unchanged with it installed. If that were not true, every determinism claim in
+all 295 tests pass unchanged with it installed. If that were not true, every determinism claim in
 Phases 2–5 would be suspect.
 
 ### See it
@@ -177,7 +183,9 @@ where one bar per controller spans each turn's open→close.
 picture, and it is a computed readout of `turn.started`/`turn.ended`, not a drawing: the same
 `TraceWriter.overlaps()` the viewer calls is asserted in `tests/instrument/trace.test.ts`, so the
 picture cannot claim something the run did not do. In the committed trace, APPROACH and FLOW
-overlap for **2637 ms**.
+overlap — the exact figure is printed by `record:trace` and stored in the trace, and it is wall
+clock, so it differs between a cached replay (~2.6 s) and a live run (~27 s). What is asserted is
+that the spans genuinely intersect, not any particular duration.
 
 ```bash
 npm run record:trace     # replays from the committed cache, zero calls
@@ -373,11 +381,16 @@ and no credentials must still be able to reproduce the central claims.
 ```bash
 npm install
 npm run spike               # regenerates spike/RESULTS.md against the shipped package
-npm test                    # 268 tests
+npm test                    # 295 tests
 npm run verify:theorem      # THE THEOREM
 npm run verify:braid-2      # the scenario, measured by the shipped integrator
 npm run verify:reflex-silent  # proves TCAS never sees the joint hazard
 npm run verify:determinism  # same seed twice, byte-identical + state hash
+npm run verify:social-information  # the controller/pilot loop, asserted
+npm run ablate              # 3 arms x 200 seeds, 600 runs
+npm run retrace:explore     # 200 schedules over the scheduling surface
+npm run record:trace        # regenerates fixtures/trace.json from the cache
+npm run demo:live           # replays the live money shot, zero API calls
 npm run typecheck
 ```
 
@@ -389,7 +402,7 @@ is **2.3511 NM against an RA DMOD of 0.55 NM — 4.3× clear**, and no RA or TA 
 four cases over 380 s. The aircraft do cross co-altitude, so the *vertical* test would pass easily;
 an advisory needs both, and the range test never comes close.
 
-Stated rather than hidden: the TA margin is only 1.06×. A TA commands no manoeuvre, so even if
+Stated rather than hidden: the TA margin is only 1.03×. A TA commands no manoeuvre, so even if
 geometry shifted enough to trigger one the encounter would still be unresolved.
 
 ## What we had to build, and why
