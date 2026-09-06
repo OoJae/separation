@@ -1,5 +1,6 @@
 import type { Tool } from "@mozaik-ai/core"
 import type { AircraftState, Callsign } from "../../domain/airspace/aircraft-state"
+import { isAdmissibleTurnRate } from "../../domain/airspace/units"
 import { probe } from "../../domain/feasibility/prober"
 import { DESCENT_FPM } from "../../scenarios/braid-2"
 import type { IntentRegistry } from "../../domain/interlock/intent-registry"
@@ -133,6 +134,14 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 					callsign: { type: "string" },
 					targetAltFt: { type: "number" },
 					targetHeadingDeg: { type: "number" },
+					// The prober offers speed reductions and expedited turns. Until these two were
+					// listed HERE the model could not name them: the handler read the fields but the
+					// JSON Schema — which is what actually reaches the provider, and which carries
+					// additionalProperties:false — did not advertise them. Eight of the eighteen
+					// catalogue options were unissuable, and the recorded run shows the model
+					// announcing "AAL221-slow-180" and then issuing its present heading and altitude.
+					targetGroundspeedKt: { type: "number" },
+					turnRateMdegPerS: { type: "number" },
 					plannedMarginNm: { type: "number" },
 				},
 				required: ["clearanceId", "callsign", "plannedMarginNm"], additionalProperties: false,
@@ -140,7 +149,7 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 			strict: false,
 			invoke: async (args: {
 				clearanceId: string; callsign: string; targetAltFt?: number; targetHeadingDeg?: number
-				targetGroundspeedKt?: number; plannedMarginNm: number
+				targetGroundspeedKt?: number; turnRateMdegPerS?: number; plannedMarginNm: number
 			}) => {
 				const command: Record<string, number> = {}
 				if (args.targetAltFt !== undefined) {
@@ -152,6 +161,11 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 				// It could not: this tool had no speed field, so an option the prober published was
 				// literally unspeakable and the axis was unreachable from the decision.
 				if (args.targetGroundspeedKt !== undefined) command.targetGroundspeedKt = Math.round(args.targetGroundspeedKt)
+				if (args.turnRateMdegPerS !== undefined && isAdmissibleTurnRate(args.turnRateMdegPerS)) {
+					// Guarded, not trusted: an inadmissible rate would leave a fractional milli-degree
+					// per step and quietly destroy the exactness the determinism story rests on.
+					command.turnRateMdegPerS = args.turnRateMdegPerS
+				}
 				proposed.set(args.clearanceId, { callsign: args.callsign, command })
 				deps.intents.announce({
 					id: args.clearanceId, callsign: args.callsign, command,

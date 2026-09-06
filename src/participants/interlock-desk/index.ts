@@ -2,7 +2,7 @@ import { FunctionCallItem, ModelMessageItem, Participant } from "@mozaik-ai/core
 import type { ExecutableTransition, InferenceInput, InterceptionHandler } from "@mozaik-ai/core"
 import type { AircraftState } from "../../domain/airspace/aircraft-state"
 import type { PendingClearance } from "../../domain/airspace/encounter"
-import { evaluateJoint, narrowToSafe, type JointHazard } from "../../domain/interlock/joint-prober"
+import { evaluateJoint, narrowToSafe, rebaseOnto, type JointHazard } from "../../domain/interlock/joint-prober"
 import { COMMAND_LAG_S } from "../../domain/airspace/maneuver-window"
 import { turnMagnitudeDeg } from "../../domain/airspace/aircraft-state"
 import { PilotEvent } from "../../events/pilot-events"
@@ -25,6 +25,15 @@ export type DeskDecision = {
 
 export type InterlockDeskDeps = {
 	readonly world: () => readonly AircraftState[]
+	/**
+	 * Sim-time that `world()` describes, in the same clock as commit times. Defaults to 0.
+	 *
+	 * REQUIRED whenever world() returns a LIVE, advancing world: the geometry is flown forward from
+	 * whatever snapshot it is handed, so a clearance committed "now" must bite one command-lag after
+	 * that snapshot — not one command-lag after the scenario began. Leaving it implicit is how the
+	 * original two-clock defect happened, so it is named at every call site rather than assumed.
+	 */
+	readonly worldAtMs?: () => number
 	readonly windows: ReadonlyMap<string, ManeuverWindow>
 	readonly horizonSec: number
 	readonly clock: Clock
@@ -75,8 +84,25 @@ export class InterlockDesk extends Participant {
 	 * sender that has not joined. It also makes the thesis literal: everything that matters is on
 	 * the bus, the airlock included. No loop, no model: it exercises authority over TIMING only.
 	 */
+	/**
+	 * The instant this scenario started, in the desk's own clock.
+	 *
+	 * Commit times are ELAPSED time, not absolute time. `SystemClock.nowMs()` returns epoch
+	 * milliseconds, so stamping a clearance with it put `committedTick` at ~1.79e11 against a
+	 * 38 000-tick horizon: the clearance never took effect inside the projection and its window was
+	 * always already shut. Under a wall clock the airlock therefore found NO joint hazard in any
+	 * run — the mechanism this project is named for was inert in exactly the runs a judge executes.
+	 * VirtualClock starts at 0, so every test agreed with itself and none of them could see it.
+	 *
+	 * Elapsed-since-start is also the physically right quantity: the admissible band is derived from
+	 * measured DECISION LATENCY, so "how long this controller took to commit" is precisely what the
+	 * window must be tested against.
+	 */
+	private readonly originMs: number
+
 	private constructor(private readonly deps: InterlockDeskDeps) {
 		super({ id: "interlock-desk", name: "interlock-desk", role: "agent", capabilities: ["airlock"] }, [])
+		this.originMs = deps.clock.nowMs()
 	}
 
 	static init(deps: InterlockDeskDeps): InterlockDesk {
@@ -224,6 +250,7 @@ export class InterlockDesk extends Participant {
 			// intersection does not care whose settle window has elapsed.
 			pending: all.map((h) => h.clearance),
 			windows: this.deps.windows,
+			worldAtMs: this.deps.worldAtMs?.() ?? 0,
 			atMs: this.deps.clock.nowMs(),
 			horizonSec: this.deps.horizonSec,
 		})
@@ -245,16 +272,21 @@ export class InterlockDesk extends Participant {
 						: []),
 					...this.deps.narrowingCandidates(turn.clearance),
 				]
+				// Same clock as evaluateJoint. Narrowing that flew on a different origin from the
+				// hazard check could "fix" a hazard by looking at a different encounter.
+				const originMs = this.deps.worldAtMs?.() ?? 0
 				const narrowed = narrowToSafe({
 					world: this.deps.world(),
-					others,
-					subject: turn.clearance,
-					candidates,
+					others: others.map((c) => rebaseOnto(c, originMs)),
+					subject: rebaseOnto(turn.clearance, originMs),
+					candidates: candidates.map((c) => rebaseOnto(c, originMs)),
 					horizonSec: this.deps.horizonSec,
 				})
 				if (narrowed !== null) {
 					outcome = "narrowed"
-					committed = narrowed
+					// Rebasing is for the GEOMETRY only. What gets committed and issued must carry the
+					// real commit time, or the clearance we fly is not the clearance we checked.
+					committed = candidates.find((c) => c.id === narrowed.id) ?? turn.clearance
 					this.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, this.getId(), {
 						event: "interlock.narrowed", turnId: turn.turnId,
 						from: turn.clearance.id, to: narrowed.id,
@@ -267,7 +299,21 @@ export class InterlockDesk extends Participant {
 			this.decisions.push({ turnId: turn.turnId, outcome, committed, hazard })
 			this.objections.delete(turn.clearance.id)
 			this.pending.remove(turn.turnId)
-			this.issue(committed)
+
+			// A DEFERRED clearance is one the desk found jointly hazardous and could not narrow to
+			// anything safe. It must not reach the metal or the crew — issuing it anyway would mean
+			// the airlock's only real power is over the transcript, which is the opposite of the
+			// claim this project makes. And the refusal is ANNOUNCED: whatever a boundary enforces
+			// it must also say, or silence reads as agreement.
+			if (outcome === "deferred") {
+				this.deps.outbox.publish(WorldEvent.COMMAND_REJECTED, this.getId(), {
+					event: "interlock.deferred", turnId: turn.turnId, callsign: committed.callsign,
+					clearanceId: committed.id,
+					reason: "jointly hazardous and no safe narrowing exists — not issued",
+				})
+			} else {
+				this.issue(committed)
+			}
 			turn.release(committed)
 		}
 	}
@@ -333,7 +379,7 @@ export class InterlockDesk extends Participant {
 	 */
 	private dated(clearance: PendingClearance, callerSuppliedTicks: boolean): PendingClearance {
 		if (callerSuppliedTicks) return clearance
-		const committedTick = secondsToTick(this.deps.clock.nowMs() / 1000)
+		const committedTick = secondsToTick((this.deps.clock.nowMs() - this.originMs) / 1000)
 		return {
 			...clearance,
 			committedTick,

@@ -22,6 +22,7 @@ import { InterlockDesk } from "../src/participants/interlock-desk"
 import { WINDOWS } from "../src/scenarios/braid-2"
 import { createController } from "../src/participants/controller"
 import { IdentityBook } from "../src/participants/identity-book"
+import { WorldEvent } from "../src/events/world-events"
 import { PilotEvent, createPilot } from "../src/participants/pilot"
 import { HORIZON_S, INITIAL } from "../src/scenarios/braid-2"
 import { MEDICAL_AIRCRAFT, MEDICAL_CALLSIGN, PILOT_SHEETS, sheetFor } from "../src/scenarios/pilot-sheets"
@@ -110,6 +111,8 @@ console.log(`  FeasibleSet. The widest-margin option is among them.\n`)
 
 const events: string[] = []
 const refusals: string[] = []
+const issuedToCrew: string[] = []
+const issuedToWorld: string[] = []
 let replans = 0
 let replyText = ""
 let waitedMs = 0
@@ -146,9 +149,17 @@ const controller = createController({
 	objectTo: () => null,
 	queryDesk,
 	beginTurn: (self, message) => {
-		replans += 1
-		console.log(`  [re-plan]     APPROACH must plan again after the refusal`)
-		scheduler.begin(self, message, { model: modelName, maxOutputTokens: 3_000, tools: self.getTools() }, desk.handler())
+		const started = scheduler.begin(
+			self, message,
+			{ model: modelName, maxOutputTokens: 3_000, tools: self.getTools() }, desk.handler(),
+		).ok
+		// Count only turns that actually STARTED. Counting attempts made a re-plan that the
+		// scheduler refused as already-in-flight look like a re-plan that happened.
+		if (started) {
+			replans += 1
+			console.log(`  [re-plan]     APPROACH is planning again after the refusal`)
+		}
+		return started
 	},
 })
 
@@ -172,6 +183,15 @@ const tap: SituationHandler = {
 				const r = event.payload as { text?: string; callsign?: string }
 				replyText = r.text ?? ""
 				console.log(`  [reply]       ${r.callsign} -> APPROACH: "${(r.text ?? "").slice(0, 80)}"`)
+			}
+			// The two links this script exists to assert. Keying only on the tool sequence let it
+			// pass with the clearance-to-crew publish deleted: "commit_clearance was called" says
+			// nothing about whether the clearance reached anybody.
+			if (event.type === PilotEvent.CLEARANCE_ISSUED) {
+				issuedToCrew.push(String((event.payload as { callsign?: string }).callsign))
+			}
+			if (event.type === WorldEvent.COMMAND_ISSUED) {
+				issuedToWorld.push(String((event.payload as { callsign?: string }).callsign))
 			}
 			if (event.type === PilotEvent.UNABLE) {
 				const u = event.payload as { callsign?: string; clearanceId?: string; reason?: string }
@@ -264,10 +284,21 @@ console.log(`  live calls    : ${budget.used()}   cache ${stats.hits} hit / ${st
  * asking is a judgement, and a build that goes red because a model exercised judgement differently
  * would be measuring the wrong thing. What the choice COSTS is measured either way.
  */
-const loopWorked = committed && (refused ? replans > 0 : true) && (asked ? answered : true)
+/**
+ * Every conjunct must be POSITIVELY demonstrated by an observed event, not implied by the absence of
+ * one. The previous form was `committed && (refused ? replans > 0 : true) && ...`, which passed with
+ * the clearance-to-crew publish deleted: nothing was refused, so the re-plan clause was vacuously
+ * true, and `committed` only meant the tool had been called.
+ */
+const reachedCrew = issuedToCrew.length > 0
+const reachedWorld = issuedToWorld.length > 0
+const loopWorked = committed && reachedCrew && reachedWorld
+	&& (refused ? replans > 0 : true) && (asked ? answered : true)
 
 console.log(`\n  ${loopWorked ? "PASS" : "FAIL"} — the controller/pilot loop is connected:`)
-console.log(`     clearance committed and issued to the crew : ${committed ? "yes" : "NO"}`)
+console.log(`     clearance committed                        : ${committed ? "yes" : "NO"}`)
+console.log(`     it reached the crew (clearance.issued)     : ${reachedCrew ? "yes" : "NO"}`)
+console.log(`     it reached the metal (actuator.command)    : ${reachedWorld ? "yes" : "NO"}`)
 console.log(`     crew refused it from its private sheet     : ${refused ? "yes" : "no"}`)
 console.log(`     refusal forced a re-plan                   : ${refused ? (replans > 0 ? "yes" : "NO") : "n/a"}`)
 console.log(`     query round-tripped when asked             : ${asked ? (answered ? "yes" : "NO") : "n/a"}`)

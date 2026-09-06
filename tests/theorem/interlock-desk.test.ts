@@ -6,7 +6,7 @@ import {
 import { COMMIT_TOOL, InterlockDesk } from "../../src/participants/interlock-desk"
 import { IntentRegistry } from "../../src/domain/interlock/intent-registry"
 import { OutboxDispatcher } from "../../src/support/outbox"
-import { VirtualClock } from "../../src/support/ports"
+import { SystemClock, VirtualClock, type Clock } from "../../src/support/ports"
 import {
 	HORIZON_S, INITIAL, WINDOWS, clearanceA, clearanceB, narrowingCandidatesForA,
 } from "../../src/scenarios/braid-2"
@@ -48,8 +48,10 @@ const commitTool = (executed: string[]): Tool => ({
 	},
 })
 
-function harness() {
-	const clock = new VirtualClock(0)
+function harness(
+	clock: Clock = new VirtualClock(0),
+	narrowing?: (subject: PendingClearance) => readonly PendingClearance[],
+) {
 	const executed: string[] = []
 	const published: { type: string; payload: unknown }[] = []
 	const outbox = new OutboxDispatcher((event) => published.push({ type: event.type, payload: event.payload }), clock)
@@ -62,8 +64,8 @@ function harness() {
 		outbox,
 		settleMs: SETTLE_MS,
 		intents: new IntentRegistry(),
-		narrowingCandidates: (subject) =>
-			subject.callsign === "AAL221" ? narrowingCandidatesForA() : [],
+		narrowingCandidates: narrowing ?? ((subject) =>
+			subject.callsign === "AAL221" ? narrowingCandidatesForA() : []),
 	})
 
 	const byModel = new Map<string, PendingClearance>([
@@ -84,7 +86,9 @@ function harness() {
 	join(approach)
 	join(flow)
 
-	return { clock, desk, executed, published, approach, flow, runLoop }
+	// The advance()-driven tests below all pass a VirtualClock; only the wall-clock regression
+	// test at the bottom passes a SystemClock, and it never advances manually.
+	return { clock: clock as VirtualClock, desk, executed, published, approach, flow, runLoop }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 60))
@@ -187,5 +191,87 @@ describe("interlock desk", () => {
 		expect(h.desk.log()).toHaveLength(1)
 		expect(h.desk.log()[0]!.outcome).toBe("clean")
 		expect(h.executed).toEqual(["A"])
+	})
+})
+
+
+/**
+ * THE CLOCK REGRESSION. This is the test that did not exist, and its absence hid a critical defect.
+ *
+ * Every other test in this repo builds a `VirtualClock(0)`, so "now" and "elapsed since the scenario
+ * started" were the same number and the desk agreed with itself by accident. Under `SystemClock`,
+ * `nowMs()` returns EPOCH milliseconds — about 1.79e12 — so a clearance stamped with it landed at
+ * committedTick ~1.79e11 against a 38 000-tick horizon. It never took effect inside the projection
+ * and its manoeuvre window was always already shut, so `evaluateJoint` returned NO hazards and
+ * excluded everything as "window-closed".
+ *
+ * The airlock was therefore inert in precisely the runs a judge executes — demo:live and
+ * record:trace both use SystemClock — while all 291 tests stayed green.
+ *
+ * A joint hazard must be found regardless of what the clock's zero happens to be.
+ */
+describe("the airlock does not care where the clock's zero is", () => {
+	it("finds the joint hazard under a wall clock, not just a virtual one", async () => {
+		const h = harness(new SystemClock())
+		h.runLoop(h.approach.getId(), "sequence AAL221", {
+			model: "approach", context: h.approach.getMemory().getContext(), tools: h.approach.getTools(),
+		}, h.desk.handler())
+		h.runLoop(h.flow.getId(), "meter SWA455", {
+			model: "flow", context: h.flow.getMemory().getContext(), tools: h.flow.getTools(),
+		}, h.desk.handler())
+
+		await settle()
+		await new Promise((r) => setTimeout(r, SETTLE_MS + 60))
+
+		const log = h.desk.log()
+		expect(log.length).toBeGreaterThan(0)
+		// The hazard is real geometry; a clock offset must not be able to hide it.
+		expect(log.some((d) => d.hazard !== null)).toBe(true)
+		// And the clearances must be CONSIDERED, not excluded as window-closed by an epoch stamp.
+		expect(log.every((d) => d.committed.committedTick < 100_000)).toBe(true)
+	})
+})
+
+
+/**
+ * THE AIRLOCK'S REFUSAL MUST REACH THE METAL, NOT JUST THE TRANSCRIPT.
+ *
+ * adjudicate() sets outcome "deferred" when a clearance is jointly hazardous and no candidate
+ * narrowing is safe — but `committed` still held the ORIGINAL hazardous clearance and issue() was
+ * called unconditionally. So the one clearance the airlock actively judged unsafe was the one it
+ * flew: the decision log said "deferred" while the aircraft did it anyway.
+ */
+describe("a clearance the airlock could not make safe is not flown", () => {
+	it("issues nothing to the world or the crew when the outcome is deferred, and announces it", async () => {
+		// No candidates on offer, so a hazardous clearance can only be deferred.
+		const h = harness(new VirtualClock(0), () => [])
+		h.runLoop(h.approach.getId(), "sequence AAL221", {
+			model: "approach", context: h.approach.getMemory().getContext(), tools: h.approach.getTools(),
+		}, h.desk.handler())
+		h.runLoop(h.flow.getId(), "meter SWA455", {
+			model: "flow", context: h.flow.getMemory().getContext(), tools: h.flow.getTools(),
+		}, h.desk.handler())
+
+		await settle()
+		h.clock.advance(SETTLE_MS + 10)
+		await settle()
+
+		const deferred = h.desk.log().filter((d) => d.outcome === "deferred")
+		expect(deferred.length).toBeGreaterThan(0)
+
+		const issuedIds = h.published
+			.filter((e) => e.type === "clearance.issued")
+			.map((e) => (e.payload as { clearanceId?: string }).clearanceId)
+		for (const d of deferred) expect(issuedIds).not.toContain(d.committed.id)
+
+		const flownCallsigns = h.published
+			.filter((e) => e.type === "actuator.command.issued")
+			.map((e) => (e.payload as { callsign?: string }).callsign)
+		for (const d of deferred) expect(flownCallsigns).not.toContain(d.committed.callsign)
+
+		// Announced, not silent: whatever a boundary enforces it must also say.
+		const announced = h.published.filter((e) =>
+			(e.payload as { event?: string })?.event === "interlock.deferred")
+		expect(announced.length).toBe(deferred.length)
 	})
 })

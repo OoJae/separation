@@ -139,9 +139,11 @@ function costOf(maneuver: Maneuver, subject: AircraftState, horizonSec: number):
 		const degrees = Math.abs(turnMagnitudeDegrees(maneuver, subject.headingMdeg))
 		const rate = maneuver.command.turnRateMdegPerS ?? TURN_RATE_MDEG_PER_S
 		const turnDurationSec = degrees / (rate / 1000)
-		// A turn adds track miles roughly in proportion to the angle off the direct path — but an
-		// EXPEDITED turn is established sooner, so it spends less of the horizon off-track. That is
-		// the trade the load factor pays for.
+		// A turn adds track miles roughly in proportion to the angle off the direct path, scaled by
+		// how much of the horizon is spent displaced. An EXPEDITED turn rolls out sooner, so it
+		// spends MORE of the horizon on the new heading and therefore costs slightly MORE track
+		// miles — not fewer. What it buys is FUEL: half the time in the expensive turning regime.
+		// The trade is fuel and time against track miles and g, and it is genuinely three-sided.
 		const offTrackFraction = (horizonSec - turnDurationSec) / horizonSec
 		const extraNm = speedNmPerSec * horizonSec * oneMinusCos(degrees) * offTrackFraction
 		return {

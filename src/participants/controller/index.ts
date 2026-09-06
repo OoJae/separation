@@ -2,6 +2,7 @@ import { SituationSpecification, createAgent } from "@mozaik-ai/core"
 import type { Agent, SituationContext, SituationHandler } from "@mozaik-ai/core"
 import type { Callsign } from "../../domain/airspace/aircraft-state"
 import type { OutboxDispatcher } from "../../support/outbox"
+import { EventType } from "../../events/event-types"
 import { PilotEvent, type UnablePayload } from "../../events/pilot-events"
 import { ControllerEvent, controllerTools, type ControllerToolDeps } from "./tools"
 
@@ -27,8 +28,13 @@ export type ControllerDeps = ControllerToolDeps & {
 	 *
 	 * Optional so the many synthetic tests that never issue a clearance need not wire it; when it
 	 * is absent a refusal is still observed and counted, it just cannot trigger a re-plan.
+	 *
+	 * Returns whether a turn actually STARTED. The scheduler enforces one in-flight turn per agent,
+	 * and a refusal necessarily arrives while the controller's own turn is still open — the desk
+	 * issues the clearance before releasing the commit. So the first attempt is always refused, and
+	 * a re-plan that is merely ATTEMPTED is a re-plan that never happens.
 	 */
-	readonly beginTurn?: (agent: Agent, message: string) => void
+	readonly beginTurn?: (agent: Agent, message: string) => boolean
 }
 
 /**
@@ -41,6 +47,20 @@ export type ControllerDeps = ControllerToolDeps & {
  */
 export function createController(deps: ControllerDeps): Agent {
 	let self: Agent | null = null
+	let pendingReplan: string | null = null
+	/**
+	 * Clearance ids THIS controller proposed, and how many times a refusal has already made it
+	 * re-plan.
+	 *
+	 * `pilot.unable` carries a callsign and a clearance id but no addressee, and every controller in
+	 * these scenarios holds standing over the principal aircraft — so without ownership every
+	 * controller was told "UNABLE your clearance" for a clearance it had never issued, and all of
+	 * them re-planned. The budget is the other half: a refusal that provokes a re-plan that is
+	 * refused again is a livelock, and each iteration actuates the world.
+	 */
+	const mine = new Set<string>()
+	const replansByClearance = new Map<string, number>()
+	const REPLAN_BUDGET = 2
 
 	class WhenPeerFormsIntent extends SituationSpecification {
 		isSatisfiedBy({ event, participant }: SituationContext): boolean {
@@ -89,8 +109,11 @@ export function createController(deps: ControllerDeps): Agent {
 	class WhenPilotRefuses extends SituationSpecification {
 		isSatisfiedBy({ event }: SituationContext): boolean {
 			if (event.type !== PilotEvent.UNABLE) return false
-			const payload = event.payload as { callsign?: string }
-			return typeof payload.callsign === "string" && deps.holdsStandingOver(payload.callsign)
+			const payload = event.payload as { callsign?: string; clearanceId?: string }
+			if (typeof payload.callsign !== "string" || !deps.holdsStandingOver(payload.callsign)) return false
+			// Only the controller that ISSUED the clearance is the one being refused.
+			if (typeof payload.clearanceId !== "string" || !mine.has(payload.clearanceId)) return false
+			return (replansByClearance.get(payload.clearanceId) ?? 0) < REPLAN_BUDGET
 		}
 	}
 
@@ -102,13 +125,60 @@ export function createController(deps: ControllerDeps): Agent {
 				if (self === null || deps.beginTurn === undefined) return
 				const p = event.payload as Partial<UnablePayload>
 				if (typeof p.callsign !== "string" || typeof p.reason !== "string") return
-				deps.beginTurn(self, [
+				const message = [
 					`${p.callsign} is UNABLE your clearance ${p.clearanceId ?? ""}: "${p.reason}".`,
 					p.counterProposal ? `They propose instead: ${p.counterProposal}.` : ``,
 					``,
 					`That clearance will not be flown, and the window you spent on it is gone. Plan`,
 					`again. You may query_pilot ${p.callsign} first if their constraint is not obvious.`,
-				].filter((l) => l !== ``).join("\n"))
+				].filter((l) => l !== ``).join("\n")
+				// Almost always refused here: this controller's own turn is still open, because the
+				// desk issues the clearance before it releases the commit. Hold it and start the
+				// moment that turn closes.
+				replansByClearance.set(p.clearanceId ?? "", (replansByClearance.get(p.clearanceId ?? "") ?? 0) + 1)
+				if (!deps.beginTurn(self, message)) pendingReplan = message
+			},
+		},
+	}
+
+	/**
+	 * A refusal that arrived while this controller was still mid-turn. Started the instant its own
+	 * turn closes — that deferral IS the cost of guessing, one whole turn of ~12-17 s.
+	 */
+	class WhenOwnTurnEnds extends SituationSpecification {
+		isSatisfiedBy({ event, participant }: SituationContext): boolean {
+			return event.type === EventType.TURN_ENDED
+				&& event.producerId === participant.getId()
+				&& pendingReplan !== null
+		}
+	}
+
+	const replanHandler: SituationHandler = {
+		specification: new WhenOwnTurnEnds(),
+		processor: {
+			apply() {
+				if (self === null || deps.beginTurn === undefined || pendingReplan === null) return
+				const message = pendingReplan
+				pendingReplan = null
+				deps.beginTurn(self, message)
+			},
+		},
+	}
+
+	/** Remember what this controller announced, so a refusal can be addressed to its author. */
+	class WhenIAnnounce extends SituationSpecification {
+		isSatisfiedBy({ event, participant }: SituationContext): boolean {
+			return event.type === ControllerEvent.INTENT_FORMING
+				&& event.producerId === participant.getId()
+		}
+	}
+
+	const ownershipHandler: SituationHandler = {
+		specification: new WhenIAnnounce(),
+		processor: {
+			apply({ event }) {
+				const id = (event.payload as { clearanceId?: string }).clearanceId
+				if (typeof id === "string") mine.add(id)
 			},
 		},
 	}
@@ -118,7 +188,7 @@ export function createController(deps: ControllerDeps): Agent {
 		capabilities: ["inference", "standing"],
 		instruction: deps.instruction,
 		tools: controllerTools(deps),
-		handlers: [objectHandler, refusalHandler],
+		handlers: [objectHandler, ownershipHandler, refusalHandler, replanHandler],
 	})
 	return self
 }

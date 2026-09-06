@@ -64,7 +64,10 @@ const descend = (altFt: number): Maneuver => ({
 export const TURN_OFFSETS_DEGREES = [-30, -20, -10, 10, 20, 30] as const
 export const DESCENT_TARGETS_FT = [4_000, 5_000, 6_000, 7_000] as const
 export const SPEED_TARGETS_KT = [210, 180] as const
-/** Standard rate and expedited, so load factor discriminates WITHIN the turn family. */
+/**
+ * Standard rate and expedited, so load factor discriminates WITHIN the turn family — which was the
+ * specific overclaim: peakLoadFactor was a constant, so all six turns were totally ordered.
+ */
 export const TURN_RATES_EXPEDITE = [false, true] as const
 
 export function maneuverCatalogue(currentHeadingMdeg: number): readonly Maneuver[] {

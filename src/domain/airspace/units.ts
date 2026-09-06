@@ -38,8 +38,9 @@ export const HEADING_TABLE_SIZE = MDEG_PER_REV / MDEG_GRID // 18000
 /** Standard rate turn, ICAO: 3 degrees per second. */
 export const TURN_RATE_MDEG_PER_S = 3_000
 /**
- * An expedited turn — twice standard rate. Steeper bank, so a higher load factor, but it reaches
- * the new heading sooner and therefore costs fewer track miles.
+ * An expedited turn — twice standard rate. Steeper bank, so a higher load factor, and it rolls out
+ * sooner: LESS time in the expensive turning burn regime, but slightly MORE of the horizon spent
+ * displaced. It trades fuel against g and track miles rather than dominating a standard-rate turn.
  *
  * DETERMINISM RULE: a turn rate is only admissible if `rate * INTEGRATE_DT_S` is a whole number of
  * milli-degrees, so the aircraft lands exactly on its target on a determinate tick with no residue.

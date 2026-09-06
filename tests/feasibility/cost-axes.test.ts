@@ -9,6 +9,7 @@ import {
 	MANEUVER_TEMPLATE_COUNT, SPEED_TARGETS_KT, maneuverCatalogue,
 } from "../../src/domain/feasibility/maneuver"
 import { loadFactorFor, probe } from "../../src/domain/feasibility/prober"
+import { controllerTools } from "../../src/participants/controller/tools"
 import { HORIZON_S, INITIAL } from "../../src/scenarios/braid-2"
 import { MEDICAL_AIRCRAFT } from "../../src/scenarios/pilot-sheets"
 
@@ -137,5 +138,49 @@ describe("the new command fields keep the integrator exact", () => {
 			targetHeadingMdeg: degreesToMdeg(130), turnRateMdegPerS: TURN_RATE_MDEG_PER_S,
 		})
 		expect(after).toEqual(before) // omitting the rate is identical to naming the default
+	})
+})
+
+
+/**
+ * EVERY OPTION THE PROBER OFFERS MUST BE ISSUABLE.
+ *
+ * This is the test that was missing. `propose_clearance` is what a controller uses to name a
+ * manoeuvre, and the model is constrained by its JSON Schema — which carries
+ * `additionalProperties: false`. When the catalogue gained expedited turns and speed reductions,
+ * the tool's TypeScript type and handler body were updated but the SCHEMA was not, so eight of the
+ * eighteen options could not be named at all. Nothing failed: the type-checker was satisfied, every
+ * test passed, and the only evidence was a recorded run in which the model announced a clearance
+ * called "AAL221-slow-180" and then issued the aircraft's present heading and present altitude.
+ *
+ * A catalogue the controller cannot speak is not a catalogue.
+ */
+describe("the option catalogue is issuable, not just publishable", () => {
+	it("propose_clearance can express every command field the catalogue produces", () => {
+		const propose = controllerTools({
+			world: () => [...INITIAL, MEDICAL_AIRCRAFT],
+			generation: () => 1, nowSec: () => 0, horizonSec: HORIZON_S,
+			position: "APPROACH", participantId: () => "x",
+			outbox: { publish: () => {} } as never,
+			intents: { announce: () => {}, resolve: () => undefined } as never,
+		}).find((t) => t.name === "propose_clearance")!
+
+		const schema = propose.parameters as { properties: Record<string, unknown> }
+		const expressible = new Set(Object.keys(schema.properties))
+		// The tool speaks degrees where the domain speaks milli-degrees; that one rename is expected.
+		expressible.add("targetHeadingMdeg")
+		expressible.add("verticalRateFpm")
+
+		const produced = new Set(
+			maneuverCatalogue(degreesToMdeg(120)).flatMap((m) => Object.keys(m.command)),
+		)
+		const unspeakable = [...produced].filter((f) => !expressible.has(f))
+		expect(unspeakable).toEqual([])
+	})
+
+	it("and an inadmissible turn rate is refused rather than silently flown", () => {
+		// A rate that does not divide the integration step would leave a fractional milli-degree per
+		// tick and destroy the exactness every determinism claim rests on.
+		expect(isAdmissibleTurnRate(2_222)).toBe(false)
 	})
 })

@@ -28,6 +28,7 @@ import { InterlockDesk } from "../src/participants/interlock-desk"
 import { StandingBroker } from "../src/participants/standing-broker"
 import { WorldParticipant } from "../src/participants/world"
 import { WorldEvent } from "../src/events/world-events"
+import { MASTER_TICK_MS } from "../src/domain/airspace/units"
 import { OPENING, controllerBriefing } from "../src/scenarios/briefing"
 import { HORIZON_S, INITIAL, WINDOWS, clearanceA, clearanceB, narrowingCandidatesForA } from "../src/scenarios/braid-2"
 import { OutboxDispatcher } from "../src/support/outbox"
@@ -58,9 +59,18 @@ const intents = new IntentRegistry()
 
 const engine = WorldEngine.init([...INITIAL])
 const world = WorldParticipant.init({ engine, outbox })
+const SETTLE_MS = 2_500
+// Declared here because the desk's worldAtMs closes over it — the world clock must exist before
+// anything that reads it.
+let tick = 0
 const desk = InterlockDesk.init({
-	world: () => engine.states(), windows: WINDOWS, horizonSec: HORIZON_S, clock, outbox,
-	settleMs: 2_500, intents,
+	world: () => engine.states(),
+	// engine.states() is LIVE — it advances every tick — so the desk must be told which instant its
+	// snapshot describes, or a clearance committed now would be flown as though the aircraft were
+	// still where they started.
+	worldAtMs: () => tick * MASTER_TICK_MS,
+	windows: WINDOWS, horizonSec: HORIZON_S, clock, outbox,
+	settleMs: SETTLE_MS, intents,
 	narrowingCandidates: (s) => (s.callsign === "AAL221" ? narrowingCandidatesForA() : []),
 })
 const broker = StandingBroker.init({ outbox, clock })
@@ -146,10 +156,21 @@ await new Promise((r) => setTimeout(r, 400))
 const applied = new Set<string>()
 const clearances = [clearanceA(), clearanceB()]
 const TOTAL_TICKS = HORIZON_S * 100
-let tick = 0
+const TARGET_FLIGHT_MS = SETTLE_MS * 4
+const TICKS_PER_INTERVAL = Math.max(1, Math.floor(TOTAL_TICKS / TARGET_FLIGHT_MS))
+/**
+ * Pace derived from the airlock, not chosen.
+ *
+ * A commit cannot be released before the desk's settle window has elapsed on the wall clock, so if
+ * the world finishes flying first the controllers' clearances arrive after the metal has stopped
+ * moving and nothing they decided is ever flown. At a fixed 10 ticks per interval that was a RACE
+ * — comfortable on one machine, lost on another — and "2 controller commands flown" is a headline,
+ * so it must not depend on how fast the host is. Sizing the flight at 4x the settle window makes
+ * the margin explicit and derived; if settleMs changes, the pace follows it.
+ */
 await new Promise<void>((resolve) => {
 	const timer = setInterval(() => {
-		for (let i = 0; i < 10 && tick < TOTAL_TICKS; i++) {
+		for (let i = 0; i < TICKS_PER_INTERVAL && tick < TOTAL_TICKS; i++) {
 			tick++
 			for (const c of clearances) {
 				if (tick >= c.effectiveTick && !applied.has(c.id)) {

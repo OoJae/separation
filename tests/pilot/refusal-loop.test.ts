@@ -99,8 +99,14 @@ function harness() {
 		objectTo: () => null,
 		queryDesk,
 		beginTurn: (self, message) => {
-			replanPrompts.push(message)
-			scheduler.begin(self, message, { model: "controller", tools: self.getTools() }, desk.handler())
+			// Record only turns that actually STARTED. Pushing on every call counted attempts, so a
+			// re-plan the scheduler refused as already-in-flight still read as a re-plan — the test
+			// passed while the behaviour it asserted did not happen.
+			const started = scheduler.begin(
+				self, message, { model: "controller", tools: self.getTools() }, desk.handler(),
+			).ok
+			if (started) replanPrompts.push(message)
+			return started
 		},
 	})
 

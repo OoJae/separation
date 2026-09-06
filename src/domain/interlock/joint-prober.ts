@@ -110,7 +110,7 @@ export function evaluateJoint(request: JointProbeRequest): JointVerdict {
  * sooner; one committed at the snapshot instant still owes the full lag. Clamping at zero means a
  * clearance already in effect is flown from the first tick, which is what "already in effect" means.
  */
-function rebaseOnto(clearance: PendingClearance, worldAtMs: number): PendingClearance {
+export function rebaseOnto(clearance: PendingClearance, worldAtMs: number): PendingClearance {
 	if (worldAtMs === 0) return clearance
 	const shift = secondsToTick(worldAtMs / 1000)
 	return {
