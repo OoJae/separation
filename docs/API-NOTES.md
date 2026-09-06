@@ -9,6 +9,17 @@ is named so you can see exactly what a consumer has to build.
 
 ---
 
+
+**Four of these are filed upstream**, each re-verified against the current `4.0.6` bundle before
+filing: [#113](https://github.com/jigjoy-ai/mozaik/issues/113) (finding 1),
+[#114](https://github.com/jigjoy-ai/mozaik/issues/114) (finding 5),
+[#115](https://github.com/jigjoy-ai/mozaik/issues/115) (finding 6, with 15 folded in),
+[#116](https://github.com/jigjoy-ai/mozaik/issues/116) (finding 13).
+
+**Finding 19 was FIXED in 4.0.6** and is left below for the record rather than filed —
+`new DefaultInferenceRunner()` now constructs from outside the package. Re-checking before filing is
+what caught it; the note is retained because the workaround it forced is still visible in our code.
+
 ## 1. An `InterceptionHandler` cannot halt a turn, and attempting it kills the process
 
 **Severity: high.** `AgentLoop.run`:

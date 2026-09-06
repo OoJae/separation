@@ -10,6 +10,17 @@ function-call arguments inside a turn that is still open**.
 Built on [Mozaik](https://github.com/jigjoy-ai/mozaik) (`@mozaik-ai/core@4.0.5`) for the
 JigJoy × daily.dev × Hyperskill *Systems of Concurrent Agents* hackathon.
 
+Building it produced **21 line-numbered findings against the shipped runtime** — see
+[`docs/API-NOTES.md`](docs/API-NOTES.md). Four are now filed upstream, each verified against the
+current `4.0.6` bundle:
+[#113](https://github.com/jigjoy-ai/mozaik/issues/113) an `InterceptionHandler` returning `idle`
+crashes the process ·
+[#114](https://github.com/jigjoy-ai/mozaik/issues/114) `runLoop` swallows every failure, so a dead
+agent is indistinguishable from a silent one ·
+[#115](https://github.com/jigjoy-ai/mozaik/issues/115) `publish` is re-entrant, so participants
+observe different event orders ·
+[#116](https://github.com/jigjoy-ai/mozaik/issues/116) an unknown tool name leaks the in-flight set.
+
 > This is **not** a proposal to run an airspace on language models. The domain was chosen because a
 > hard exogenous clock, incommensurable objectives, private information and real-time safety
 > envelopes make the failure modes of concurrent agent systems *observable*. The deterministic reflex
