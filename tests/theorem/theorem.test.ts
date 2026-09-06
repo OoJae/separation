@@ -205,3 +205,44 @@ describe("theorem", () => {
 		})
 	})
 })
+
+
+/**
+ * evaluateJoint's OWN CLOCK, which nothing exercised.
+ *
+ * `probeAt` always builds the clearances at the same instant it evaluates, so the window test and
+ * the geometry always agreed and the reconciliation between them was never put under load. Reverting
+ * the two-clock fix failed one assertion; the worldAtMs half failed none, because no caller passed it.
+ *
+ * These drive the two halves apart deliberately.
+ */
+describe("evaluateJoint reconciles the clocks it is given", () => {
+	it("tests each clearance's window against ITS OWN commit time, not a shared instant", () => {
+		// A is committed early and B late. Only B should be excluded, even though both are
+		// evaluated at the same `atMs` — the window belongs to the clearance, not to the call.
+		const verdict = evaluateJoint({
+			world,
+			pending: [clearanceA(0), clearanceB(band.upperMs / 1000)],
+			windows: WINDOWS, atMs: band.upperMs, horizonSec: HORIZON_S,
+		})
+		expect(verdict.excluded.map((e) => e.clearanceId)).toEqual(["B"])
+		expect(verdict.considered).toEqual(["A"])
+	})
+
+	it("re-dates the geometry onto the instant the world snapshot describes", () => {
+		// The same clearances, flown from a world that is already 20 s old. Rebasing must move the
+		// clearance forward relative to that snapshot, so the verdict is NOT identical to worldAtMs 0.
+		const atOrigin = evaluateJoint({
+			world, pending: [clearanceA(20), clearanceB(20)],
+			windows: WINDOWS, atMs: 20_000, horizonSec: HORIZON_S,
+		})
+		const rebased = evaluateJoint({
+			world, pending: [clearanceA(20), clearanceB(20)],
+			windows: WINDOWS, atMs: 20_000, worldAtMs: 20_000, horizonSec: HORIZON_S,
+		})
+		expect(atOrigin.considered).toEqual(["A", "B"])
+		expect(rebased.considered).toEqual(["A", "B"])
+		// Same clearances, same windows, different world origin -> different flown geometry.
+		expect(rebased.hazards).not.toEqual(atOrigin.hazards)
+	})
+})

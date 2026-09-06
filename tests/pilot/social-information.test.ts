@@ -84,7 +84,7 @@ function harness() {
 		outbox,
 		participantId: () => pilot.getId(),
 		beginTurn: (self, message) =>
-			scheduler.begin(self, message, { model: "pilot", tools: self.getTools() }),
+			scheduler.begin(self, message, { model: "pilot", tools: self.getTools() }).ok,
 	})
 
 	const controller = createController({
@@ -104,24 +104,18 @@ function harness() {
 			apply({ event }) {
 				scheduler.observe(event)
 				if (event.type === PilotEvent.UNABLE) unable.push(event.payload as UnablePayload)
-				// A pilot answering via report_constraint: forward it to the waiting controller.
-				if (event.type === "function_call.completed") {
-					const p = event.payload as { callId?: string; output?: { text?: string } }
-					if (p.callId === "r1" && p.output?.text) {
-						inflightAtReply.push(scheduler.inflight().length)
-						queryDesk.receive({
-							queryId: "q1", callsign: MEDICAL_CALLSIGN, toController: "APPROACH",
-							text: p.output.text, claims: [],
-						}, clock.nowMs(), 0)
-					}
-				}
+				// The round trip is closed by PRODUCTION code — the pilot publishes pilot.reply and
+				// the QueryDesk subscribes — so this observer only WATCHES. It used to forward the
+				// reply itself, sniffing function_call.completed and re-injecting under a hardcoded
+				// queryId, which meant deleting both production halves left every test green.
+				if (event.type === PilotEvent.REPLY) inflightAtReply.push(scheduler.inflight().length)
 			},
 		},
 	}
 	const observer = createHuman({ name: "observer", capabilities: [], handlers: [tap] })
 
 	initializeRuntime({ state: new S(), inferenceRunnerConfig: { runner } })
-	for (const p of [observer, desk, pilot, controller]) { join(p); identity.register(p) }
+	for (const p of [observer, desk, queryDesk, pilot, controller]) { join(p); identity.register(p) }
 
 	return { clock, scheduler, desk, queryDesk, controller, pilot, runner, unable, inflightAtReply }
 }

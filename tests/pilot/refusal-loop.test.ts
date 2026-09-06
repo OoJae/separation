@@ -88,7 +88,7 @@ function harness() {
 		outbox,
 		participantId: () => pilot.getId(),
 		beginTurn: (self, message) =>
-			scheduler.begin(self, message, { model: "pilot", tools: self.getTools() }),
+			scheduler.begin(self, message, { model: "pilot", tools: self.getTools() }).ok,
 	})
 
 	const controller = createController({
@@ -208,7 +208,7 @@ function queryHarness() {
 		outbox,
 		participantId: () => pilot.getId(),
 		beginTurn: (self, message) =>
-			scheduler.begin(self, message, { model: "pilot-answers", tools: self.getTools() }),
+			scheduler.begin(self, message, { model: "pilot-answers", tools: self.getTools() }).ok,
 	})
 
 	const asker = createController({
@@ -241,7 +241,11 @@ function queryHarness() {
 	}
 	initializeRuntime({ state: new S(), inferenceRunnerConfig: { runner } })
 	for (const p of [observer, queryDesk, pilot, asker]) { join(p); identity.register(p) }
-	return { clock, scheduler, asker, replies, seen }
+	const ask = (queryId: string, fromController: string, question: string) =>
+		outbox.publish(PilotEvent.QUERY, asker.getId(), {
+			queryId, toCallsign: MEDICAL_CALLSIGN, fromController, question,
+		})
+	return { clock, scheduler, asker, replies, seen, ask }
 }
 
 /**
@@ -278,5 +282,67 @@ describe("a parked controller is woken by the pilot itself", () => {
 
 		const serialized = JSON.stringify(h.seen.get("asker")?.context.getItems() ?? [])
 		expect(serialized).toContain("query_pilot")
+	})
+})
+
+
+/**
+ * TWO CONTROLLERS ASKING ONE CREW.
+ *
+ * Overlapping standing over a single aircraft is this project's premise, so two controllers
+ * querying the same crew is not exotic. The reply slot was one closure variable, overwritten on
+ * every incoming query whether or not a turn actually started — so the crew would answer the FIRST
+ * question and publish that answer under the SECOND controller's queryId, settling the wrong parked
+ * turn with the wrong text while the first controller waited out its timeout.
+ */
+describe("a crew answering one controller does not misroute the answer to another", () => {
+	it("replies under the queryId it was actually asked, and drops the query it cannot take", async () => {
+		const h = queryHarness()
+		const replies: ReplyPayload[] = h.replies
+
+		// Two queries land back to back, before the crew can finish either.
+		h.ask("q-first", "APPROACH", "anything I should know?")
+		h.ask("q-second", "FLOW", "say again your constraint?")
+		await settle()
+		h.clock.advance(13_000)
+		await settle()
+
+		expect(replies.length).toBeLessThanOrEqual(1)
+		// Whatever it answered, it answered the question it was actually given.
+		for (const r of replies) expect(["q-first", "q-second"]).toContain(r.queryId)
+		expect(replies.every((r) => r.queryId === "q-first")).toBe(true)
+	})
+})
+
+
+/**
+ * THE WAIT IS THE POINT, SO THE WAIT IS ASSERTED.
+ *
+ * QueryDesk.receive used to default `startedAtMs` to `atMs`, making waitedMs identically zero and
+ * silently erasing the very cost the desk exists to measure. The fix — remembering when the query
+ * was actually asked — had no test, so restoring the bug passed the whole suite.
+ */
+describe("asking costs the window, measurably", () => {
+	it("reports the real elapsed wait, not zero", async () => {
+		const { QueryDesk: QD } = await import("../../src/participants/controller/query-desk")
+		const { VirtualClock: VC } = await import("../../src/support/ports")
+		const { OutboxDispatcher: OD } = await import("../../src/support/outbox")
+
+		const clock = new VC(0)
+		const desk = new QD({ outbox: new OD(() => {}, clock), clock, timeoutMs: 60_000 })
+		const pending = desk.ask({
+			askerId: "APPROACH", fromController: "APPROACH",
+			toCallsign: MEDICAL_CALLSIGN, question: "constraints?",
+		})
+
+		clock.advance(13_000)
+		desk.receive({
+			queryId: "q1", callsign: MEDICAL_CALLSIGN, toController: "APPROACH",
+			text: "medical on board", claims: [],
+		}, clock.nowMs())
+
+		const outcome = await pending
+		expect(outcome.ok).toBe(true)
+		expect(outcome.ok && outcome.waitedMs).toBe(13_000)
 	})
 })

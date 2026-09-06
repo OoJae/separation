@@ -54,13 +54,22 @@ export const DESCENT_FPM = 2_000
 
 export const REQUIRED_OFFSET_NM = 0.6
 /**
- * SHALLOWED from 20 degrees when the two-clock defect was fixed.
+ * SHALLOWED from 20 degrees when the two-clock defect was fixed — and NOT for the reason first
+ * written here.
  *
- * A steeper turn displaces SWA455 faster, so it also loses that displacement faster as the commit
- * is delayed — which is what gave the joint hazard a 27.5 s life against a concurrent commit range
- * reaching 34.58 s. Twelve degrees costs displacement per second and buys hazard lifetime; paired
- * with the closer start above it holds the hazard alive for 53.5 s. See hazard-lifetime.test.ts,
- * which computes that number rather than trusting this comment.
+ * The original note claimed a shallower turn "buys hazard lifetime". Measurement says the opposite:
+ * holding this start position, 20 degrees gives 59.5 s of lifetime and 12 degrees only 53.5 s. The
+ * lifetime comes from the CLOSER START, not from the shallower turn.
+ *
+ * What the shallower turn actually buys is TCAS silence, and that is what pins it. At this position
+ * a 20-degree turn closes to 1.6184 NM and fires 1242 traffic advisories; 15 degrees closes to
+ * 2.0751 NM and fires 764; 12 degrees closes to 2.3511 NM and fires none. The pair (12 degrees,
+ * x = 0.9) is the shallowest-cost combination that holds the hazard alive across the whole
+ * concurrent commit range while leaving the collision-avoidance system with nothing to say — which
+ * is the constraint that protects the thesis, since an advisory the safety net acts on would
+ * resolve the encounter for us.
+ *
+ * hazard-lifetime.test.ts computes the lifetime rather than trusting any of this.
  */
 export const TURN_DEGREES = 12
 export const TURN_RATE_DEG_PER_S = 3

@@ -17,7 +17,16 @@ export type PilotDeps = {
 	readonly outbox: OutboxDispatcher
 	readonly participantId: () => string
 	/** Starts this pilot's turn. Reactive — a pilot only thinks when spoken to. */
-	readonly beginTurn: (pilot: Agent, message: string) => void
+	/**
+	 * Begin a turn for this crew. Returns whether one actually STARTED.
+	 *
+	 * The scheduler allows one in-flight turn per agent, so a second query arriving while this crew
+	 * is still answering the first is refused. That refusal has to be visible here: the reply slot
+	 * used to be overwritten regardless, so the crew would answer the FIRST controller's question
+	 * and publish it under the SECOND controller's queryId — settling the wrong parked turn with
+	 * the wrong answer, and leaving the first controller parked until its timeout.
+	 */
+	readonly beginTurn: (pilot: Agent, message: string) => boolean | void
 }
 
 /**
@@ -137,8 +146,10 @@ export function createPilot(deps: PilotDeps): Agent {
 				// Synchronous and never throws — a throwing processor starves the bus (#15).
 				if (self === null) return
 				const q = event.payload as QueryPayload
-				answering = { queryId: q.queryId, toController: q.fromController }
-				deps.beginTurn(self, [
+				// A crew already mid-answer cannot take a second question. Leave the existing slot
+				// alone and let the newcomer time out honestly rather than corrupting the reply.
+				if (answering !== null) return
+				const started = deps.beginTurn(self, [
 					`${q.fromController} asks: "${q.question}"`,
 					``,
 					`Your aircraft is ${sheet.callsign}. Your private situation, which the controller`,
@@ -150,6 +161,8 @@ export function createPilot(deps: PilotDeps): Agent {
 					`report_constraint if you have something operationally relevant to disclose.`,
 					`Query id ${q.queryId}.`,
 				].join("\n"))
+				if (started === false) return
+				answering = { queryId: q.queryId, toController: q.fromController }
 			},
 		},
 	}

@@ -123,9 +123,9 @@ const pilots = PILOT_SHEETS.map((sheet) => {
 		participantId: () => p.getId(),
 		beginTurn: (self, message) => {
 			console.log(`  [pilot turn]  ${sheet.callsign} is thinking...`)
-			scheduler.begin(self, message, {
+			return scheduler.begin(self, message, {
 				model: modelName, maxOutputTokens: 800, tools: self.getTools(),
-			})
+			}).ok
 		},
 	})
 	return p

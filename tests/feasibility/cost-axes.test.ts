@@ -71,15 +71,25 @@ describe("the cost axes are independent, not decorative", () => {
 		expect(areIncomparable(slow, descend)).toBe(true)
 	})
 
-	it("the six turns are no longer a totally ordered chain", () => {
-		const turns = optionsFor("AAL77").filter((o) => o.maneuver.axis === "lateral")
-		let incomparable = 0
-		for (let i = 0; i < turns.length; i++) {
-			for (let j = i + 1; j < turns.length; j++) {
-				if (areIncomparable(turns[i]!.cost, turns[j]!.cost)) incomparable++
-			}
+	/**
+	 * Named for what it checks. The previous version filtered all twelve lateral options while
+	 * calling them "the six turns", and asserted only that SOME incomparable pair existed — which
+	 * is true for reasons having nothing to do with load factor. It could not fail for its stated
+	 * reason.
+	 *
+	 * The chain that used to exist was: every turn totally ordered by magnitude, because delay was
+	 * a rescaling of track miles, fuel was monotone in both, and load factor was a constant. What
+	 * breaks it is the RATE: a standard and an expedited turn of the SAME magnitude now trade fuel
+	 * against g, so neither dominates.
+	 */
+	it("a standard and an expedited turn of equal magnitude are incomparable — the chain is broken", () => {
+		for (const magnitude of [10, 20, 30]) {
+			const standard = costOf("AAL77", `turn-right-${magnitude}`)
+			const expedite = costOf("AAL77", `turn-right-${magnitude}-expedite`)
+			expect(expedite.fuelBurnMg).toBeLessThan(standard.fuelBurnMg)   // rolls out sooner
+			expect(expedite.peakLoadFactor).toBeGreaterThan(standard.peakLoadFactor) // steeper bank
+			expect(areIncomparable(standard, expedite)).toBe(true)
 		}
-		expect(incomparable).toBeGreaterThan(0)
 	})
 
 	/**
@@ -114,6 +124,31 @@ describe("the new command fields keep the integrator exact", () => {
 			expect(Number.isInteger(rate * INTEGRATE_DT_S)).toBe(true)
 		}
 		expect(isAdmissibleTurnRate(2_222)).toBe(false) // 44.44 mdeg per step — would leave residue
+	})
+
+	/**
+	 * The rate must CHANGE something observable.
+	 *
+	 * The test below integrates 1000 ticks, which is long enough for either rate to finish, so it
+	 * passes identically whether integrate() honours turnRateMdegPerS or ignores it entirely. That
+	 * is no coverage at all for the field the commit was written to add. This one counts ticks.
+	 */
+	it("an expedited turn reaches its heading in half the ticks of a standard one", () => {
+		const ticksToTurn = (rate?: number) => {
+			let state: AircraftState = { ...MEDICAL_AIRCRAFT, headingMdeg: degreesToMdeg(0) }
+			const command = { targetHeadingMdeg: degreesToMdeg(30), turnRateMdegPerS: rate }
+			for (let i = 1; i <= 10_000; i++) {
+				state = integrate(state, command)
+				if (state.headingMdeg === degreesToMdeg(30)) return i
+			}
+			return -1
+		}
+		const standard = ticksToTurn(TURN_RATE_MDEG_PER_S)
+		const expedite = ticksToTurn(EXPEDITE_TURN_RATE_MDEG_PER_S)
+		expect(standard).toBeGreaterThan(0)
+		expect(expedite).toBe(Math.ceil(standard / 2))
+		// Omitting the field must behave exactly like naming the default, not like the fast rate.
+		expect(ticksToTurn(undefined)).toBe(standard)
 	})
 
 	it("an expedited turn lands exactly on its target heading, with no residue", () => {
