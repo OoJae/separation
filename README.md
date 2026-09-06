@@ -34,30 +34,30 @@ It ships as a **passing test**, not a paragraph: `npm run verify:theorem`, zero 
 
 Two controllers with contested authority over one aircraft, both mid-turn, on a real model:
 
+<!-- reproduced-by: demo:live -->
 ```
 [tool]             APPROACH -> assess_traffic
 [tool]             FLOW -> assess_traffic
 [tool]             APPROACH -> probe_feasible
 [tool]             FLOW -> probe_feasible
 [tool]             APPROACH -> propose_clearance
-[intent.forming]   APPROACH -> AAL221 (AAL221-desc-4000)   inflight: 2
-[objection.raised] FLOW -> APPROACH: "that descent crosses my metering block at CARDL"
-                                       INFLIGHT AT THIS MOMENT: 2
+[intent.forming]   APPROACH -> AAL221 (AAL221-dsc-4000)   inflight: 2
+[objection.raised] FLOW -> APPROACH: "that descent crosses my metering block at CARDL"   INFLIGHT AT THIS MOMENT: 2
 [tool]             FLOW -> propose_clearance
-[intent.forming]   FLOW -> AAL221 (CARDL-meter-AAL221-slow)   inflight: 2
+[intent.forming]   FLOW -> AAL221 (AAL221-desc-7000)   inflight: 2
 [tool]             APPROACH -> commit_clearance
 [tool]             FLOW -> commit_clearance
 
-desk: turn-1 narrowed -> AAL221-desc-4000/peer-7000  {"targetAltFt":7000,"verticalRateFpm":2000}
-desk: turn-2 clean    -> CARDL-meter-AAL221-slow     {"targetGroundspeedKt":210}
+desk: turn-1 narrowed  -> AAL221-dsc-4000/peer-7000 {"targetAltFt":7000,"verticalRateFpm":2000}
+desk: turn-2 clean     -> AAL221-desc-7000 {"targetAltFt":7000,"verticalRateFpm":2000}
 ```
 
 APPROACH announced its intent from *inside* `propose_clearance`, before any clearance existed.
 FLOW objected while **both turns were still open** — `inflight: 2` is a readout of the scheduler,
 not a caption. APPROACH's held commit resumed with FLOW's counter-proposal — a narrowing, not a
 refusal — and APPROACH's own context now contains the rewritten call, so it can reason about having
-been narrowed. FLOW then issued a real speed reduction of its own, on the axis the prober offers
-and the integrator flies.
+been narrowed. FLOW, reasoning from the same feasible set, arrived independently at 7000 — so the
+two controllers converge on one altitude by different routes, one of them by being overruled.
 
 `npm run demo:live` replays this from a committed cache with **zero API calls and no key**.
 
@@ -203,7 +203,7 @@ clock only offers timers already due — so no unreachable schedule is even expr
 separates this from a random number generator with a violation counter.
 
 The seam is also **non-invasive**: the default policy reproduces the previous behaviour exactly, and
-all 295 tests pass unchanged with it installed. If that were not true, every determinism claim in
+all 306 tests pass unchanged with it installed. If that were not true, every determinism claim in
 Phases 2–5 would be suspect.
 
 ### See it
@@ -414,7 +414,7 @@ and no credentials must still be able to reproduce the central claims.
 ```bash
 npm install
 npm run spike               # regenerates spike/RESULTS.md against the shipped package
-npm test                    # 295 tests
+npm test                    # the whole suite, zero tokens
 npm run verify:theorem      # THE THEOREM
 npm run verify:braid-2      # the scenario, measured by the shipped integrator
 npm run verify:reflex-silent  # proves TCAS never sees the joint hazard
