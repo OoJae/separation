@@ -28,22 +28,22 @@ describe("the recorded trace", () => {
 
 		const pair = overlaps[0]!
 		expect(pair.a.participant).not.toBe(pair.b.participant)
-		expect(pair.ms).toBeGreaterThan(1_000)      // seconds of simultaneity, not a rounding artefact
-		expect(Number.isFinite(pair.ms)).toBe(true) // never Infinity from an unclosed turn
+		expect(pair.seconds).toBeGreaterThan(1)         // seconds of simultaneity, not a rounding artefact
+		expect(Number.isFinite(pair.seconds)).toBe(true) // never Infinity from an unclosed turn
 	})
 
 	it("never reports an infinite overlap, even if a turn never closed", () => {
 		const unfinished: Trace = {
 			...trace,
 			turns: [
-				{ participant: "A", turnId: "t1", openedMs: 0, closedMs: null, reason: null },
-				{ participant: "B", turnId: "t2", openedMs: 10, closedMs: null, reason: null },
+				{ participant: "A", turnId: "t1", openedS: 0, closedS: null, reason: null },
+				{ participant: "B", turnId: "t2", openedS: 10, closedS: null, reason: null },
 			],
 			meta: { ...trace.meta, generatedAtTSim: 500 },
 		}
 		const overlaps = TraceWriter.overlaps(unfinished)
 		expect(overlaps).toHaveLength(1)
-		expect(overlaps[0]!.ms).toBe(490) // clipped to the end of the run
+		expect(overlaps[0]!.seconds).toBe(490) // clipped to the end of the run
 	})
 
 	it("carries the money shot as an ordered narrative", () => {

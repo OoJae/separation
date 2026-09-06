@@ -53,7 +53,9 @@ const clock = new SystemClock()
 const { initializeRuntime, join, runLoop, sendEvent } = defineRuntime<TraceState>()
 const identity = new IdentityBook()
 const outbox = new OutboxDispatcher((e, s) => sendEvent(e, s), clock)
-const tracer = new TraceWriter({ clock, nameOf: (id) => identity.nameOf(id), scenario: "BRAID-2" })
+const tracer = new TraceWriter({ clock,
+	// The world flies on its own clock; stamp the trace on THAT axis, not the wall clock.
+	simSeconds: () => tick * MASTER_TICK_MS / 1000, nameOf: (id) => identity.nameOf(id), scenario: "BRAID-2" })
 const scheduler = new TurnScheduler({ runLoop, outbox, clock, identity })
 const intents = new IntentRegistry()
 
@@ -204,7 +206,7 @@ console.log(`  actuated  : ${actuated.length === 0
 	? "NO controller command reached the metal"
 	: `${actuated.length} controller command(s) flown -> ${[...new Set(actuated)].join(", ")}`}`)
 console.log(`  OVERLAPPING TURNS: ${overlaps.length}` + (overlaps.length > 0
-	? `  ${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${Math.round(o.ms)}ms`).join(", ")}`
+	? `  ${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${o.seconds.toFixed(1)}s of simulated time`).join(", ")}`
 	: "  — no two agents were ever thinking at once"))
 for (const b of trace.beats) console.log(`  beat   : ${b.kind.padEnd(9)} ${b.text}`)
 console.log(`\n  wrote fixtures/trace.json (${(JSON.stringify(trace).length / 1024).toFixed(0)} KB)`)

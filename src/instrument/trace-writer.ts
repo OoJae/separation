@@ -29,8 +29,8 @@ export type TraceFrame = {
 export type TraceTurn = {
 	readonly participant: string
 	readonly turnId: string
-	readonly openedMs: number
-	readonly closedMs: number | null
+	readonly openedS: number
+	readonly closedS: number | null
 	readonly reason: string | null
 }
 
@@ -69,24 +69,47 @@ const str = (v: unknown): string => (typeof v === "string" ? v : String(v ?? "")
 
 export class TraceWriter {
 	private readonly frames: TraceFrame[] = []
-	private readonly open = new Map<string, { participant: string; openedMs: number }>()
+	private readonly open = new Map<string, { participant: string; openedS: number }>()
 	private readonly turns: TraceTurn[] = []
 	private readonly events: TraceEvent[] = []
 	private readonly beats: TraceBeat[] = []
 
+	/** Sim seconds when the scenario supplies them; elapsed real seconds otherwise. Never epoch. */
+	private nowTSim(): number {
+		if (this.deps.simSeconds !== undefined) return this.deps.simSeconds()
+		return (this.deps.clock.nowMs() - this.originMs) / 1000
+	}
+
+	private readonly originMs: number
+
 	constructor(
 		private readonly deps: {
 			readonly clock: Clock
+			/**
+			 * Simulation time NOW, in seconds — the same axis `world.snapshot` stamps its frames on.
+			 *
+			 * Without it every event, beat and turn span was stamped with `clock.nowMs()`, which
+			 * under a wall clock is EPOCH milliseconds. The trace then carried frames on 1..380 and
+			 * everything else on ~1.79e12, in a field both call `tSim`. The viewer scrubs the frame
+			 * axis, so the event log, the narrative beats and the in-flight strip could never line
+			 * up with the radar picture — the one thing the strip exists to show.
+			 *
+			 * Optional so the substrate tests that construct a writer with no world still work; they
+			 * fall back to elapsed real seconds, which for them is the same thing.
+			 */
+			readonly simSeconds?: () => number
 			readonly nameOf: (id: string) => string
 			readonly scenario: string
 			readonly arm?: string
 		},
-	) {}
+	) {
+		this.originMs = deps.clock.nowMs()
+	}
 
 	/** Feed every observed event here. Synchronous and never throws (house rule, finding #15). */
 	observe(event: SemanticEvent): void {
 		const p = (event.payload ?? {}) as Payload
-		const tSim = this.deps.clock.nowMs()
+		const tSim = this.nowTSim()
 		const producer = this.deps.nameOf(event.producerId)
 		const seq = typeof p.seq === "number" ? p.seq : this.events.length + 1
 
@@ -96,7 +119,7 @@ export class TraceWriter {
 		}
 
 		if (event.type === EventType.TURN_STARTED) {
-			this.open.set(str(p.turnId), { participant: str(p.agentName), openedMs: tSim })
+			this.open.set(str(p.turnId), { participant: str(p.agentName), openedS: tSim })
 		}
 		if (event.type === EventType.TURN_ENDED) {
 			const turnId = str(p.turnId)
@@ -104,7 +127,7 @@ export class TraceWriter {
 			if (opened) {
 				this.turns.push({
 					participant: opened.participant, turnId,
-					openedMs: opened.openedMs, closedMs: tSim, reason: str(p.reason) || null,
+					openedS: opened.openedS, closedS: tSim, reason: str(p.reason) || null,
 				})
 				this.open.delete(turnId)
 			}
@@ -118,11 +141,11 @@ export class TraceWriter {
 
 	/** Close any turn still open, so the strip has no dangling bars. */
 	finish(): Trace {
-		const tSim = this.deps.clock.nowMs()
+		const tSim = this.nowTSim()
 		for (const [turnId, opened] of this.open) {
 			this.turns.push({
 				participant: opened.participant, turnId,
-				openedMs: opened.openedMs, closedMs: null, reason: "still open at end of run",
+				openedS: opened.openedS, closedS: null, reason: "still open at end of run",
 			})
 		}
 		this.open.clear()
@@ -137,7 +160,7 @@ export class TraceWriter {
 				events: this.events.length,
 			},
 			frames: this.frames,
-			turns: [...this.turns].sort((a, b) => a.openedMs - b.openedMs),
+			turns: [...this.turns].sort((a, b) => a.openedS - b.openedS),
 			events: this.events,
 			beats: this.beats,
 		}
@@ -150,21 +173,21 @@ export class TraceWriter {
 	 * open forever — otherwise an unfinished turn would report an infinite overlap and the headline
 	 * number would be a measurement artefact rather than a fact about the run.
 	 */
-	static overlaps(trace: Trace): { readonly a: TraceTurn; readonly b: TraceTurn; readonly ms: number }[] {
-		const out: { a: TraceTurn; b: TraceTurn; ms: number }[] = []
+	static overlaps(trace: Trace): { readonly a: TraceTurn; readonly b: TraceTurn; readonly seconds: number }[] {
+		const out: { a: TraceTurn; b: TraceTurn; seconds: number }[] = []
 		const endOfRun = Math.max(
 			trace.meta.generatedAtTSim,
-			...trace.turns.map((t) => t.closedMs ?? t.openedMs),
+			...trace.turns.map((t) => t.closedS ?? t.openedS),
 		)
-		const closed = (t: TraceTurn) => t.closedMs ?? endOfRun
+		const closed = (t: TraceTurn) => t.closedS ?? endOfRun
 		for (let i = 0; i < trace.turns.length; i++) {
 			for (let j = i + 1; j < trace.turns.length; j++) {
 				const a = trace.turns[i]!
 				const b = trace.turns[j]!
 				if (a.participant === b.participant) continue
-				const start = Math.max(a.openedMs, b.openedMs)
+				const start = Math.max(a.openedS, b.openedS)
 				const end = Math.min(closed(a), closed(b))
-				if (end > start) out.push({ a, b, ms: end - start })
+				if (end > start) out.push({ a, b, seconds: end - start })
 			}
 		}
 		return out

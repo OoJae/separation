@@ -101,7 +101,7 @@ function init(data) {
 
   const ov = overlaps()
   $("overlapline").innerHTML = ov.length
-    ? `· <span style="color:var(--warn)">${ov.length} overlapping turn pair — ${Math.round(ov[0].ms)}ms of simultaneous deliberation</span>`
+    ? `· <span style="color:var(--warn)">${ov.length} overlapping turn pair — ${ov[0].seconds.toFixed(1)}s of simultaneous deliberation</span>`
     : `· no simultaneous turns`
 
   drawBars(ov); renderLog(); resize(); draw()
@@ -109,13 +109,13 @@ function init(data) {
 
 /** Same computation as TraceWriter.overlaps, so the picture and the test agree. */
 function overlaps() {
-  const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(t => t.closedMs ?? t.openedMs))
-  const cl = (x) => x.closedMs ?? end, out = []
+  const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(t => t.closedS ?? t.openedS))
+  const cl = (x) => x.closedS ?? end, out = []
   for (let i = 0; i < trace.turns.length; i++)
     for (let j = i + 1; j < trace.turns.length; j++) {
       const a = trace.turns[i], b = trace.turns[j]
       if (a.participant === b.participant) continue
-      const s = Math.max(a.openedMs, b.openedMs), e = Math.min(cl(a), cl(b))
+      const s = Math.max(a.openedS, b.openedS), e = Math.min(cl(a), cl(b))
       if (e > s) out.push({ a, b, ms: e - s, from: s, to: e })
     }
   return out
@@ -125,8 +125,8 @@ function drawBars(ov) {
   const host = $("bars"); host.innerHTML = ""
   const turns = trace.turns
   if (!turns.length) return
-  const t0 = Math.min(...turns.map(x => x.openedMs))
-  const end = Math.max(trace.meta.generatedAtTSim, ...turns.map(x => x.closedMs ?? x.openedMs))
+  const t0 = Math.min(...turns.map(x => x.openedS))
+  const end = Math.max(trace.meta.generatedAtTSim, ...turns.map(x => x.closedS ?? x.openedS))
   const w = end - t0 || 1
   const pct = (ms) => ((ms - t0) / w) * 100
 
@@ -139,7 +139,7 @@ function drawBars(ov) {
     const lab = document.createElement("div")
     lab.className = "overlaplabel"
     lab.style.left = pct(o.from) + "%"
-    lab.textContent = `${Math.round(o.ms)}ms both thinking`
+    lab.textContent = `${o.seconds.toFixed(1)}s both thinking`
     host.appendChild(lab)
   }
 
@@ -147,12 +147,12 @@ function drawBars(ov) {
   turns.forEach((x) => {
     const el = document.createElement("div")
     el.className = "bar"
-    el.style.left = pct(x.openedMs) + "%"
-    el.style.width = Math.max(1.5, pct(x.closedMs ?? end) - pct(x.openedMs)) + "%"
+    el.style.left = pct(x.openedS) + "%"
+    el.style.width = Math.max(1.5, pct(x.closedS ?? end) - pct(x.openedS)) + "%"
     el.style.top = (16 + rows.indexOf(x.participant) * 22) + "px"
     el.style.background = COLOR[x.participant] ?? "#7fa8c9"
     el.textContent = x.participant
-    el.title = `${x.turnId} — ${x.openedMs.toFixed(0)} → ${(x.closedMs ?? end).toFixed(0)}ms`
+    el.title = `${x.turnId} — ${x.openedS.toFixed(0)} → ${(x.closedS ?? end).toFixed(0)}s`
     host.appendChild(el)
   })
 
@@ -263,8 +263,8 @@ function draw() {
   $("scrub").value = String((t / (span * 1000)) * 1000)
   const ph = $("ph")
   if (ph && trace.turns.length) {
-    const t0 = Math.min(...trace.turns.map(x => x.openedMs))
-    const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(x => x.closedMs ?? x.openedMs))
+    const t0 = Math.min(...trace.turns.map(x => x.openedS))
+    const end = Math.max(trace.meta.generatedAtTSim, ...trace.turns.map(x => x.closedS ?? x.openedS))
     ph.style.left = Math.max(0, Math.min(100, ((t - t0) / (end - t0)) * 100)) + "%"
   }
   for (const el of document.querySelectorAll(".ev")) {

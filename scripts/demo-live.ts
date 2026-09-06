@@ -181,7 +181,7 @@ mkdirSync("fixtures", { recursive: true })
 writeFileSync("fixtures/money-shot.json", JSON.stringify(trace, null, 1))
 console.log(`\n  trace       : ${trace.meta.turns} turns, ${trace.meta.events} events, ${trace.beats.length} beats`)
 console.log(`  OVERLAPPING TURNS: ${overlaps.length}` + (overlaps.length > 0
-	? `  (${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${o.ms}ms`).join(", ")})`
+	? `  (${overlaps.map((o) => `${o.a.participant}+${o.b.participant} for ${o.seconds.toFixed(1)}s`).join(", ")})`
 	: "  — no two agents were ever thinking at once"))
 console.log(`  wrote fixtures/money-shot.json`)
 console.log(`  latencies:  ${runner.log().filter((c) => !c.cached).map((c) => `${c.latencyMs}ms`).join(", ")}`)
