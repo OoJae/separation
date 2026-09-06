@@ -59,13 +59,22 @@ describe("feasibility prober", () => {
 		 * axes are built so that turning and descending trade against each other in opposite
 		 * directions, and neither dominates.
 		 */
-		it("produces options no solver can order — a turn and a descent are incomparable", () => {
+		/**
+		 * A turn is dominated by a descent, and that is the honest answer.
+		 *
+		 * This used to assert the pair was incomparable, and it passed only because the fuel axis
+		 * mixed conventions — absolute burn for turns and descents, a marginal saving for speed —
+		 * so the numbers were not comparable quantities at all. On one referent an idle descent
+		 * genuinely costs less fuel, adds no track miles, arrives sooner and pulls less g than any
+		 * turn. What separates them is MARGIN, which is geometry and deliberately not a cost.
+		 */
+		it("orders a turn below a descent on cost — and margin is what a turn is ever for", () => {
 			const set = probe(request())
-			const turn = set.options.find((o) => o.maneuver.axis === "lateral")
-			const descent = set.options.find((o) => o.maneuver.axis === "vertical")
-			expect(turn).toBeDefined()
-			expect(descent).toBeDefined()
-			expect(areIncomparable(turn!.cost, descent!.cost)).toBe(true)
+			const turn = set.options.find((o) => o.maneuver.axis === "lateral")!
+			const descent = set.options.find((o) => o.maneuver.axis === "vertical")!
+			expect(dominates(descent.cost, turn.cost)).toBe(true)
+			// The turn survives in the set because separation, not cost, is what it buys.
+			expect(set.options).toContain(turn)
 		})
 
 		it("has at least one incomparable pair in the real BRAID-2 set", () => {
@@ -79,13 +88,17 @@ describe("feasibility prober", () => {
 			expect(incomparable).toBeGreaterThan(0)
 		})
 
-		it("costs fuel for a manoeuvre that adds ZERO track miles", () => {
-			// This is why fuel is a separate axis rather than a rescaling of distance. Model fuel
-			// as kg/NM and this option costs nothing, collapsing four axes into three.
-			const descent = probe(request()).options.find((o) => o.maneuver.axis === "vertical")
-			expect(descent).toBeDefined()
-			expect(descent!.cost.deltaTrackMilesNm).toBe(0)
-			expect(descent!.cost.fuelBurnMg).toBeGreaterThan(0)
+		it("moves fuel for a manoeuvre that adds ZERO track miles", () => {
+			// This is why fuel is a separate axis rather than a rescaling of distance. Model fuel as
+			// kg/NM and this option costs nothing, collapsing four axes into three. The sign is
+			// negative because an idle descent burns less than cruising for the same duration —
+			// what matters for the axis is that distance says nothing about it either way.
+			const descent = probe(request()).options.find((o) => o.maneuver.axis === "vertical")!
+			const turn = probe(request()).options.find((o) => o.maneuver.axis === "lateral")!
+			expect(descent.cost.deltaTrackMilesNm).toBe(0)
+			expect(descent.cost.fuelBurnMg).not.toBe(0)
+			// Same zero track miles, opposite fuel sign: distance cannot predict fuel.
+			expect(Math.sign(descent.cost.fuelBurnMg)).not.toBe(Math.sign(turn.cost.fuelBurnMg))
 		})
 
 		it("dominance is a filter, and it refuses to order incomparable options", () => {

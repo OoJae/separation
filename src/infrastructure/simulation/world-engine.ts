@@ -6,8 +6,7 @@ import { unitVector } from "../../domain/airspace/heading-table"
 import { toTrackRecord, type PairClosure, type WorldSnapshot } from "../../domain/airspace/observations"
 import { isSeparationLost } from "../../domain/airspace/separation-standard"
 import {
-	CLOSURE_EVERY, INTEGRATE_EVERY, KT_TO_NM_PER_S, SNAPSHOT_EVERY, tickToSeconds, type Tick,
-} from "../../domain/airspace/units"
+	CLOSURE_EVERY, INTEGRATE_EVERY, KT_TO_NM_PER_S, SNAPSHOT_EVERY, tickToSeconds, type Tick, isAdmissibleTurnRate } from "../../domain/airspace/units"
 
 /**
  * The phases, in the ONE order they ever run. An ordered constant rather than a set, because on
@@ -84,6 +83,16 @@ export class WorldEngine {
 		}
 		if (command.targetAltFt !== undefined && !Number.isFinite(command.targetAltFt)) {
 			return { ok: false, reason: "target altitude is not finite" }
+		}
+		// Speed was the one axis with no gate, and it is the dangerous one: a non-finite speed makes
+		// x and y NaN, every comparison against NaN is false, and loss of separation stops being
+		// detectable at all. A non-positive speed flies the aircraft backwards or freezes it.
+		if (command.targetGroundspeedKt !== undefined
+			&& (!Number.isFinite(command.targetGroundspeedKt) || command.targetGroundspeedKt <= 0)) {
+			return { ok: false, reason: `groundspeed ${command.targetGroundspeedKt} kt is not a flyable speed` }
+		}
+		if (command.turnRateMdegPerS !== undefined && !isAdmissibleTurnRate(command.turnRateMdegPerS)) {
+			return { ok: false, reason: `turn rate ${command.turnRateMdegPerS} mdeg/s does not divide the integration step` }
 		}
 		this.commands.set(callsign, { ...this.commands.get(callsign), ...command })
 		return { ok: true }

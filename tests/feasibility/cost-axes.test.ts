@@ -60,13 +60,15 @@ describe("the cost axes are independent, not decorative", () => {
 		expect(slow.peakLoadFactor).toBe(1)
 	})
 
-	it("which no turn and no descent can produce — that is why fuel is its own axis", () => {
-		const slow = costOf("AAL77", "slow-to-210")
+	it("and trades against a descent on delay, which is what leaves a real choice", () => {
+		const slow = costOf("AAL77", "slow-to-180")
 		const descend = costOf("AAL77", "descend-4000")
-		const turn = costOf("AAL77", "turn-right-20")
-		// The descent arrives sooner but burns more; the speed reduction the other way round.
+		// Both add zero track miles and pull no g. The descent arrives sooner; the speed reduction
+		// saves more fuel. Neither dominates, and no ordering of the two is available from geometry.
+		expect(slow.deltaTrackMilesNm).toBe(descend.deltaTrackMilesNm)
+		expect(slow.arrivalDelaySec).toBeGreaterThan(descend.arrivalDelaySec)
+		expect(slow.fuelBurnMg).toBeLessThan(descend.fuelBurnMg)
 		expect(areIncomparable(slow, descend)).toBe(true)
-		expect(areIncomparable(slow, turn)).toBe(true)
 	})
 
 	it("the six turns are no longer a totally ordered chain", () => {

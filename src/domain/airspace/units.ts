@@ -52,7 +52,11 @@ export const EXPEDITE_TURN_RATE_MDEG_PER_S = 6_000
 /** Does this turn rate divide the integration step exactly? See EXPEDITE_TURN_RATE_MDEG_PER_S. */
 export function isAdmissibleTurnRate(rateMdegPerS: number): boolean {
 	const step = rateMdegPerS * INTEGRATE_DT_S
-	return Number.isInteger(step) && step > 0
+	// A whole number of milli-degrees is not enough: headings are only representable on the
+	// MDEG_GRID the heading table is built on, so a step of 1 mdeg (rate 50) would walk the
+	// aircraft off the grid and every unitVector lookup after it would be interpolating a heading
+	// the table does not hold. The step must be a whole number of GRID cells.
+	return Number.isFinite(step) && step > 0 && Number.isInteger(step) && step % MDEG_GRID === 0
 }
 
 /** Knots to NM per second. 250 kt = 0.0694444... NM/s */

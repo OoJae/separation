@@ -126,12 +126,32 @@ describe("repo invariants (machine-checked, not asserted in prose)", () => {
 	 * would collapse into "we politely chose not to look".
 	 */
 	it("nothing in the feasibility layer can reach a PilotSheet", () => {
+		/**
+		 * The token list used to be ["PilotSheet", "private-sheet", "participants/pilot"], and it
+		 * caught none of the routes that actually exist. There is no file called `private-sheet`
+		 * anywhere in the repo, and the two real doors — `../disclosure/pilot-sheet` for
+		 * `refusalFor`, and `../../scenarios/pilot-sheets` for `sheetFor` and `PILOT_SHEETS` —
+		 * matched nothing on the list. An auditor imported the sheet straight into the prober and
+		 * this test stayed green. A ban that a one-line import walks through is not machine-checked,
+		 * it is decorative, and this one was load-bearing for the whole thin-agency answer.
+		 *
+		 * Now it bans the MODULES by path and the symbols by name, so both doors are shut.
+		 */
+		const FORBIDDEN_MODULES = [/pilot-sheet/i, /participants\/pilot/i, /disclosure\//i]
+		const FORBIDDEN_SYMBOLS = [
+			"PilotSheet", "PilotConstraint", "RefusalRule", "refusalFor",
+			"sheetFor", "PILOT_SHEETS", "reportedFuelMg", "wantsShortestPath",
+		]
 		const offenders: string[] = []
 		for (const file of FILES) {
 			if (!file.startsWith(join("src", "domain", "feasibility"))) continue
 			const body = code(file)
-			for (const forbidden of ["PilotSheet", "private-sheet", "participants/pilot"]) {
-				if (body.includes(forbidden)) offenders.push(`${file}: ${forbidden}`)
+			for (const spec of body.matchAll(/from\s+["']([^"']+)["']/g)) {
+				const module = spec[1]!
+				if (FORBIDDEN_MODULES.some((re) => re.test(module))) offenders.push(`${file}: imports ${module}`)
+			}
+			for (const symbol of FORBIDDEN_SYMBOLS) {
+				if (new RegExp(`\\b${symbol}\\b`).test(body)) offenders.push(`${file}: names ${symbol}`)
 			}
 		}
 		expect(offenders).toEqual([])

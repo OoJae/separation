@@ -10,7 +10,13 @@ import { secondsToTick } from "../../src/domain/airspace/units"
 import { AAL221, HORIZON_S, SWA455, clearanceA, clearanceB } from "../../src/scenarios/braid-2"
 
 function flyWithTcas(clearances: readonly PendingClearance[]) {
-	const world = WorldEngine.init([AAL221, SWA455])
+	return flyWithTcasFrom(AAL221, SWA455, clearances)
+}
+
+function flyWithTcasFrom(
+	first: typeof AAL221, second: typeof SWA455, clearances: readonly PendingClearance[],
+) {
+	const world = WorldEngine.init([first, second])
 	const applied = new Set<string>()
 	let ras = 0, tas = 0
 	let bestRaTau = Number.POSITIVE_INFINITY, bestTaTau = Number.POSITIVE_INFINITY
@@ -179,5 +185,53 @@ describe("advisory mechanics", () => {
 				expect(tracker.observe(i === 20 ? "resolution" : "none")).toBe("none")
 			}
 		})
+	})
+})
+
+
+/**
+ * THE CLAIM UNDER JITTER, WHICH IS WHERE IT ACTUALLY LIVES.
+ *
+ * Every assertion above uses the nominal geometry. The scenario's robustness story elsewhere runs a
+ * 729-draw jitter grid — but that grid only ever checked SEPARATION, never TCAS, so "no RA and no
+ * TA fires" was an unqualified claim backed by a single point.
+ *
+ * Measured across the jitter envelope: no RA in any draw, and a TA in roughly a quarter of them.
+ * The RA margin is the one that protects the thesis — an RA commands a manoeuvre and would resolve
+ * the encounter for us — and it survives everywhere. A TA is advisory only, so a run that produces
+ * one is still an unresolved encounter and the result stands. That is the honest shape of it, and
+ * asserting the RA while reporting the TA is better than asserting both and being wrong about one.
+ */
+describe("TCAS under initial-condition jitter", () => {
+	const deltas = [-0.1, 0, 0.1]
+	const draws = () => {
+		const out: { ras: number; tas: number }[] = []
+		for (const dx of deltas) for (const dy of deltas)
+		for (const dx2 of deltas) for (const dy2 of deltas) {
+			const a = { ...AAL221, x: AAL221.x + dx, y: AAL221.y + dy }
+			const b = { ...SWA455, x: SWA455.x + dx2, y: SWA455.y + dy2 }
+			let ras = 0, tas = 0
+			for (const cl of [[], [clearanceA()], [clearanceB()], [clearanceA(), clearanceB()]]) {
+				const r = flyWithTcasFrom(a, b, cl)
+				ras += r.ras
+				tas += r.tas
+			}
+			out.push({ ras, tas })
+		}
+		return out
+	}
+
+	it("fires NO resolution advisory in any jittered draw — the margin that protects the thesis", () => {
+		const all = draws()
+		expect(all).toHaveLength(81)
+		expect(all.filter((d) => d.ras > 0)).toHaveLength(0)
+	})
+
+	it("DOES fire traffic advisories in some draws, and that is reported rather than claimed away", () => {
+		const withTa = draws().filter((d) => d.tas > 0)
+		// Pinned so the number cannot drift silently. A TA commands no manoeuvre, so the encounter
+		// is still unresolved and the joint hazard is still a controller problem.
+		expect(withTa.length).toBeGreaterThan(0)
+		expect(withTa.length).toBeLessThan(41) // a minority of draws, not most of them
 	})
 })

@@ -118,13 +118,18 @@ export function controllerTools(deps: ControllerToolDeps): Tool[] {
 					askerId: deps.participantId(), fromController: deps.position,
 					toCallsign: callsign, question,
 				})
-				if (!outcome.ok) {
-					return { answered: false, reason: outcome.reason, waitedMs: outcome.waitedMs }
-				}
-				return {
-					answered: true, callsign, reply: outcome.text,
-					claims: outcome.claims, waitedMs: outcome.waitedMs,
-				}
+				// waitedMs is deliberately NOT returned to the model.
+				//
+				// It is a wall-clock number, so it differs on every run — and the inference cache is
+				// content-addressed over the context, which includes this tool's output. Handing the
+				// model a jittery number meant the turn AFTER a query could never replay: the
+				// recorded context and the replayed one differed by a few milliseconds, so every
+				// downstream entry missed forever and the demonstration could not be cached past the
+				// point where it got interesting. The cost is still real, still measured by the
+				// QueryDesk and still reported; the model simply does not condition on a number that
+				// is different every time it asks.
+				if (!outcome.ok) return { answered: false, reason: outcome.reason }
+				return { answered: true, callsign, reply: outcome.text, claims: outcome.claims }
 			},
 		},
 		{

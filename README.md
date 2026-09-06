@@ -65,18 +65,32 @@ and the integrator flies.
 
 The sharpest answer to *"what did the language models decide that a solver could not?"* The
 FeasibleSet offers **18 separation-safe options** for the medical aircraft. Six of them will be
-refused by the crew — including the one with the widest margin — and **nothing the controller can
-see says which.** Not the world, not a snapshot, not the FeasibleSet.
+refused by the crew — and **nothing the controller can see says which.** Not the world, not a
+snapshot, not the FeasibleSet. Live:
 
 ```
   Of those 18 separation-safe options, 6 would be REFUSED by the crew:
     slow-to-180, slow-to-210, turn-left-30, turn-left-30-expedite,
     turn-right-30, turn-right-30-expedite
-  The widest-margin option is among them.
 
-APPROACH -> assess_traffic -> probe_feasible -> propose_clearance -> commit_clearance
-                                     (never asked; AAL77's medical never entered the decision)
+APPROACH -> assess_traffic -> probe_feasible -> query_pilot
+                                                    |  parked, its turn open and blocked
+AAL77   -> report_constraint  "Medical emergency on board — passenger condition
+                               deteriorating. Need shortest possible track to the runway."
+APPROACH -> propose_clearance -> commit_clearance
 ```
+
+The controller **spent part of its manoeuvre window to ask**, and the fact that decided the answer
+exists only in that pilot's closure. `npm run verify:social-information` replays the whole exchange
+from the committed cache with **zero API calls**.
+
+Two things are worth saying about how that result was obtained, because neither was staged. It came
+last, after the loop was connected — for several rounds this section honestly reported that the
+model did **not** ask, and shipped a script that exited non-zero saying so. And it changed on a
+**correctness fix, not a prompt**: the fuel axis had been mixing absolute and marginal conventions,
+so the option set looked far more separable than it was. With one referent the eighteen options
+collapse to a two-option Pareto frontier whose members differ only in delay against fuel, and asking
+became worth its cost.
 
 **Asking is not free**, which is what makes it a judgement. `query_pilot`'s `invoke()` awaits the
 reply and `FunctionCallState.run` awaits the tool, so the controller's whole turn is parked for the
@@ -91,8 +105,9 @@ the wrong thing.
 
 #### What was wrong with this before, in full
 
-The earlier version of this section claimed the controller asked. **That evidence was not real, and
-neither was the mechanism underneath it.**
+An earlier version of this section also claimed the controller asked — but on evidence that was not
+real, over a mechanism that was not connected. Both are worth stating, because the result above is
+only worth anything if the road to it is visible.
 
 - `verify:social-information` instructed APPROACH to vector **AAL77 through a world containing only
   AAL221 and SWA455.** AAL77 had a pilot sheet but no aircraft state anywhere in the repo. It also
@@ -116,12 +131,28 @@ neither was the mechanism underneath it.**
   not exist — `Command` had no speed field. All six turns were totally ordered, so a solver could
   have taken an argmax.
 
-All of it is now connected, and the repairs are load-bearing rather than cosmetic: `peakLoadFactor`
-is computed from the bank a level turn requires (`sqrt(1 + (v·ω/g)²)` — multiply, divide and sqrt
-only, so the `Math.*` ban holds with no new exemption); the catalogue gained expedited turns and
-real speed reductions, taking it from 10 templates to 18; and incomparable option pairs went from
-**30 to 115**, with the Pareto frontier from 5 distinct points to 10. `npm run record:trace` now
-reports `2 controller command(s) flown` where it used to fly a script.
+All of it is now connected. `peakLoadFactor` is computed from the bank a level turn requires
+(`sqrt(1 + (v·ω/g)²)` — multiply, divide and sqrt only, so the `Math.*` ban holds with no new
+exemption), the catalogue gained expedited turns and real speed reductions (10 → 18 templates), and
+`npm run record:trace` reports `2 controller command(s) flown` where it used to fly a script.
+
+**A later audit found the fuel axis was still incoherent, and fixing it moved the answer.** Turns and
+descents reported the ABSOLUTE burn during the manoeuvre while speed reported a MARGINAL saving, so
+`+8.3 million` and `−63.8 million` were not comparable quantities — one was fuel spent over six
+seconds of turning, the other a saving over six minutes of flying. Nothing can be dominated or
+incomparable on an axis with no common referent. Every branch now answers the same question: what
+does this manoeuvre cost, or save, against simply carrying on.
+
+The honest consequence is that **cost alone gets much further than we previously claimed.** For
+AAL77 the 18 options reduce to a Pareto frontier of **two**: `descend-4000` and `slow-to-180`. An
+idle descent burns less than cruising, adds no track miles, arrives sooner and pulls no g, so it
+dominates every turn — and a turn is therefore never chosen for its cost, only for the **margin** it
+buys, which is geometry and deliberately not a cost.
+
+What survives is the part that matters. Those two frontier options are genuinely incomparable: both
+add zero track miles, one arrives six seconds early, the other saves half again as much fuel and
+arrives two and a half minutes late. Geometry cannot order them — and **one of the two is a
+clearance this crew will refuse outright**, which nothing the controller can see will tell it.
 
 
 ### RETRACE found a real bug in this repo
@@ -399,7 +430,10 @@ npm run typecheck
 If the collision-avoidance system resolved this encounter, the joint hazard would be something the
 safety net already handles and no architecture above it would matter. It does not: closest approach
 is **2.3511 NM against an RA DMOD of 0.55 NM — 4.3× clear**, and no RA or TA fires in any of the
-four cases over 380 s. The aircraft do cross co-altitude, so the *vertical* test would pass easily;
+four cases over 380 s at the nominal geometry. Under the ±0.1 NM jitter envelope, **no draw of 81
+fires an RA** — the margin that protects the thesis — while a TA appears in roughly a quarter of
+them. A TA commands no manoeuvre, so those runs are still unresolved encounters; the distinction is
+asserted in `tests/world/reflex-silent.test.ts` rather than glossed. The aircraft do cross co-altitude, so the *vertical* test would pass easily;
 an advisory needs both, and the range test never comes close.
 
 Stated rather than hidden: the TA margin is only 1.03×. A TA commands no manoeuvre, so even if

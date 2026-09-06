@@ -42,7 +42,7 @@ describe("private information", () => {
 
 			// ...but the public cost axis IS there, because a manoeuvre's fuel cost is geometry.
 			expect(set.options.length).toBeGreaterThan(0)
-			expect(set.options[0]!.cost.fuelBurnMg).toBeGreaterThan(0)
+			expect(set.options[0]!.cost.fuelBurnMg).not.toBe(0) // signed: a descent saves, a turn costs
 		})
 
 		it("every sheet holds something the world cannot show", () => {

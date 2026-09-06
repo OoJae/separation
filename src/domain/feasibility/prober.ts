@@ -26,9 +26,22 @@ const BURN_MG_PER_SEC = {
  * adding distance still costs fuel, and one that adds distance in a cheap regime may cost less
  * than one that adds none in an expensive one. The axes stay genuinely incommensurable.
  */
+/**
+ * Fuel MARGINAL to doing nothing, integer milligrams. Negative when the manoeuvre saves fuel.
+ *
+ * This used to return the ABSOLUTE burn during the manoeuvre, while the speed branch returned a
+ * marginal delta — so the axis mixed two conventions and its values were not comparable with each
+ * other. A turn was "+8.3 million" and a speed reduction "−63.8 million", and Pareto-comparing them
+ * was meaningless: one was fuel spent over six seconds of turning, the other a saving over six
+ * minutes of flying. Nothing can be dominated or incomparable on an axis with no common referent.
+ *
+ * Every branch now answers the same question — what does this manoeuvre cost, or save, against
+ * simply carrying on — so an idle descent is correctly a saving and a turn correctly a cost.
+ */
 function burnFor(maneuver: Maneuver, durationSec: number): number {
 	const regime = maneuver.axis === "vertical" ? "descent" : maneuver.axis === "lateral" ? "turning" : "cruise"
-	return Math.floor((BURN_MG_PER_SEC[regime] * Math.round(durationSec * 1000)) / 1000)
+	const marginalMgPerSec = BURN_MG_PER_SEC[regime] - BURN_MG_PER_SEC.cruise
+	return Math.round((marginalMgPerSec * Math.round(durationSec * 1000)) / 1000)
 }
 
 /**
