@@ -31,7 +31,23 @@ export async function explore(params: {
 	readonly runs: number
 	readonly seed: string
 	readonly yieldLabels: readonly string[]
-}): Promise<{ readonly baseline: ExplorationResult; readonly violations: readonly ExplorationResult[]; readonly explored: number }> {
+}): Promise<{
+	readonly baseline: ExplorationResult
+	readonly violations: readonly ExplorationResult[]
+	/** Schedules GENERATED. Says nothing about how many behaved differently — see `distinct`. */
+	readonly generated: number
+	/**
+	 * Behaviourally DISTINCT executions, deduped on the decisions the policy was actually asked to
+	 * make rather than on the pick-vector that was offered.
+	 *
+	 * These are not the same number and the difference is the whole honesty of this tool. A pick
+	 * vector is 24 integers; if the run only ever reaches one decision point, all 200 vectors drive
+	 * the identical execution and `generated` says 200 while `distinct` says 2. Reporting the former
+	 * as "explored 200 distinct schedules" is exactly the random-number-generator-with-a-counter
+	 * this file's own docstring disclaims.
+	 */
+	readonly distinct: number
+}> {
 	// The default schedule first. If THIS violates, exploration is not even needed.
 	const fifo = new FifoPolicy()
 	const baselineObs = await withPolicy(fifo, params.scenario)
@@ -45,6 +61,9 @@ export async function explore(params: {
 	const rng = Rng.fromSeed(params.seed)
 	const found: ExplorationResult[] = []
 	const seen = new Set<string>()
+	// Keyed on what the run actually DID, not on what it was offered.
+	const behaviours = new Set<string>()
+	behaviours.add(traceKey(fifo.decisions()))
 
 	for (let run = 0; run < params.runs; run++) {
 		// A schedule is a list of integers plus a set of yield seams. Data, not description —
@@ -57,6 +76,7 @@ export async function explore(params: {
 
 		const policy = new ScriptedPolicy(picks, new Set(yieldAt))
 		const obs = await withPolicy(policy, params.scenario)
+		behaviours.add(traceKey(policy.decisions(), yieldAt))
 		const violations = checkAll(obs)
 		if (violations.length === 0) continue
 
@@ -68,7 +88,12 @@ export async function explore(params: {
 		})
 	}
 
-	return { baseline, violations: found, explored: seen.size }
+	return { baseline, violations: found, generated: seen.size, distinct: behaviours.size }
+}
+
+/** Identity of an execution: the choices actually taken, plus which seams were opened. */
+function traceKey(decisions: readonly ScheduleDecision[], yieldAt: readonly string[] = []): string {
+	return decisions.map((d) => `${d.label}#${d.picked}`).join(">") + "|" + [...yieldAt].sort().join(",")
 }
 
 /** Re-run one exact schedule. A repro must be replayable, or it is an anecdote. */

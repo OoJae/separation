@@ -125,6 +125,14 @@ architecture exposes — found a real bug in our own airlock: a commit arriving 
 20 ms of a promised 50 ms settle window. The shrinker reduced it to one decision, zero non-default
 picks, zero yield seams — proving it was never a race but an unconditional bug.
 
+That bug is fixed, so the shipped run now finds nothing, and **a tool that finds nothing is
+indistinguishable from a broken one**. So it reports what it actually did: how many schedules were
+*generated* versus how many executions were **behaviourally distinct** — deduped on the choices the
+scheduler was really asked to make, not on the pick-vector it was offered. It also **exits non-zero
+if the scenario offers no decision points at all**, because exploring a scenario with no scheduling
+surface proves nothing however many schedules you count. A test feeds the detector the exact
+observation the historical bug produced and asserts it still fires.
+
 Building on Mozaik produced **21 line-numbered findings against the shipped runtime**. Four are filed
 upstream, each re-verified against the current `4.0.6` bundle:
 [#113](https://github.com/jigjoy-ai/mozaik/issues/113) an `InterceptionHandler` returning `idle`

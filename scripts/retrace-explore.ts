@@ -27,6 +27,7 @@ import { VirtualClock } from "../src/support/ports"
 class S extends RuntimeState {}
 const SETTLE_MS = 50
 
+
 /**
  * Two controllers contend for standing over one aircraft, and two commits are held in the airlock
  * with the second arriving late. Exactly the shape the architecture claims to handle.
@@ -75,8 +76,12 @@ const scenario: Scenario = async (): Promise<RunObservation> => {
 			},
 		} as never)
 
+	// SAME INSTANT, deliberately. Two commits arriving in one millisecond make their settle timers
+	// co-due, and a co-due pair is the only thing that offers the scheduler a choice — which is the
+	// whole surface this tool explores. This used to stagger them by 30 ms, because 30 ms was the
+	// historical bug's repro; once that bug was fixed the stagger left the clock with no two
+	// eligible timers, the policy was never consulted, and 200 schedules all drove one execution.
 	held.push(commit("c1", clearanceA()))
-	clock.advance(30)
 	held.push(commit("c2", clearanceB()))
 	clock.advance(SETTLE_MS + 60)
 	await Promise.all(held.map((p) => Promise.race([p, Promise.resolve()])))
@@ -103,8 +108,24 @@ const result = await explore({
 
 console.log(`  baseline (default FIFO schedule): ${result.baseline.violations.length} violation(s)`)
 for (const v of result.baseline.violations) console.log(`     ${v.invariant}: ${v.detail}`)
-console.log(`     decisions offered: ${result.baseline.decisions.length}`)
-console.log(`\n  explored ${result.explored} distinct schedules -> ${result.violations.length} violating\n`)
+console.log(`     decision points offered: ${result.baseline.decisions.length}`)
+for (const d of result.baseline.decisions) console.log(`       ${d.label} (${d.options} options)`)
+
+console.log(`\n  generated ${result.generated} schedules`)
+console.log(`  BEHAVIOURALLY DISTINCT executions: ${result.distinct}`)
+console.log(`  violating: ${result.violations.length}\n`)
+
+/**
+ * A scenario with no decision points has no scheduling surface, so exploring it is vacuous — and
+ * saying "explored 200 distinct schedules" about it is the exact overclaim this tool exists to
+ * disclaim. Failing loudly is better than a reassuring zero.
+ */
+if (result.baseline.decisions.length === 0) {
+	console.log("  FAIL — this scenario exposes NO scheduling surface. Every generated schedule drove")
+	console.log("  the identical execution, so the exploration proved nothing. Fix the scenario, not")
+	console.log("  the counter.\n")
+	process.exit(1)
+}
 
 const byInvariant = new Map<string, typeof result.violations[number]>()
 for (const r of result.violations) {
