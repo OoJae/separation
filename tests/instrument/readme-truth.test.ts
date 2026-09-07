@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@rstest/core"
 import { execSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 
 /**
  * THE README MUST BE TRUE.
@@ -18,12 +18,22 @@ import { readFileSync } from "node:fs"
  */
 const SCRIPT_MARKER = /<!--\s*reproduced-by:\s*([\w:-]+)\s*-->\s*\n```\n([\s\S]*?)```/g
 
-function claimedBlocks(): { script: string; lines: string[] }[] {
-	const readme = readFileSync("README.md", "utf8")
-	return [...readme.matchAll(SCRIPT_MARKER)].map((m) => ({
-		script: m[1]!,
-		lines: m[2]!.split("\n").map((l) => l.trim()).filter((l) => l !== ""),
-	}))
+/** Every markdown file a judge might read, not just the front page. */
+const DOCS = ["README.md", "docs/NOTEBOOK.md", "docs/API-NOTES.md"]
+
+function claimedBlocks(): { file: string; script: string; lines: string[] }[] {
+	const out: { file: string; script: string; lines: string[] }[] = []
+	for (const file of DOCS) {
+		if (!existsSync(file)) continue
+		for (const m of readFileSync(file, "utf8").matchAll(SCRIPT_MARKER)) {
+			out.push({
+				file,
+				script: m[1]!,
+				lines: m[2]!.split("\n").map((l) => l.trim()).filter((l) => l !== ""),
+			})
+		}
+	}
+	return out
 }
 
 describe("every reproducible block in the README reproduces", () => {
@@ -33,8 +43,8 @@ describe("every reproducible block in the README reproduces", () => {
 		expect(blocks.length).toBeGreaterThan(0)
 	})
 
-	for (const { script, lines } of blocks) {
-		it(`\`npm run ${script}\` still prints what the README says it prints`, () => {
+	for (const { file, script, lines } of blocks) {
+		it(`${file}: \`npm run ${script}\` still prints what it says it prints`, () => {
 			// Keyless: every reproducible script replays from the committed cache.
 			const out = execSync(`npm run --silent ${script}`, {
 				encoding: "utf8",
@@ -44,7 +54,7 @@ describe("every reproducible block in the README reproduces", () => {
 			const printed = out.split("\n").map((l) => l.trim())
 			const missing = lines.filter((claimed) => !printed.includes(claimed))
 			// Name them: a bare "expected [ …(2) ] to equal []" is useless when this fires months later.
-			expect(missing, `README claims these lines but \`npm run ${script}\` did not print them:\n  ${missing.join("\n  ")}`).toEqual([])
+			expect(missing, `${file} claims these lines but \`npm run ${script}\` did not print them:\n  ${missing.join("\n  ")}`).toEqual([])
 		}, 120_000)
 	}
 })
