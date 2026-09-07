@@ -1,6 +1,9 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SEPARATION — does the architecture matter?</title>
+<link rel="icon" href="../site/mark.svg" type="image/svg+xml">
 <style>
   :root{
     /* Same tokens as the site (site/app.css), duplicated deliberately: this file is inlined whole
@@ -91,8 +94,8 @@
   <h1>Separation</h1>
   <span class="sub" id="meta">loading…</span>
   <div class="tabs">
-    <button class="tab on" id="tab-ab">Does the architecture matter?</button>
-    <button class="tab" id="tab-run">The recorded run</button>
+    <button class="tab on" id="tab-ab" aria-pressed="true">Does the architecture matter?</button>
+    <button class="tab" id="tab-run" aria-pressed="false">The recorded run</button>
   </div>
 </header>
 
@@ -108,7 +111,7 @@
           <div class="panelabel" id="lab-b"></div>
           <div class="verdict" id="ver-b"></div>
         </div>
-        <canvas id="scope-b"></canvas>
+        <canvas id="scope-b" role="img" aria-label="Plan view, concurrent with validate-at-commit: the arm that loses separation."></canvas>
         <div class="panebottom" id="cmd-b"></div>
       </div>
       <div class="pane">
@@ -116,13 +119,14 @@
           <div class="panelabel" id="lab-c"></div>
           <div class="verdict" id="ver-c"></div>
         </div>
-        <canvas id="scope-c"></canvas>
+        <canvas id="scope-c" role="img" aria-label="Plan view, concurrent with the interlock: the arm that maintains separation."></canvas>
         <div class="panebottom" id="cmd-c"></div>
       </div>
     </div>
     <div class="controls">
       <button id="ab-play">❚❚ pause</button>
-      <input type="range" id="ab-scrub" min="0" max="1000" value="0">
+      <input type="range" id="ab-scrub" min="0" max="1000" value="0"
+           aria-label="Scrub both architectures through the 380-second encounter">
       <span class="t" id="ab-clock">t+0s</span>
     </div>
   </div>
@@ -138,10 +142,11 @@
           <span><i class="sw" style="background:var(--warn);opacity:.5"></i>both open at once</span>
         </div>
       </div>
-      <canvas id="scope"></canvas>
+      <canvas id="scope" role="img" aria-label="Plan view of the recorded agent run."></canvas>
       <div class="controls">
         <button id="play">▶ play</button>
-        <input type="range" id="scrub" min="0" max="1000" value="0">
+        <input type="range" id="scrub" min="0" max="1000" value="0"
+           aria-label="Scrub the recorded agent run">
         <span class="t" id="clock">t+0.0s</span>
         <button id="jump">jump to the objection</button>
       </div>
@@ -400,6 +405,8 @@ function show(which) {
   $("view-run").classList.toggle("hidden", which !== "run")
   $("tab-ab").classList.toggle("on", which === "ab")
   $("tab-run").classList.toggle("on", which === "run")
+  $("tab-ab").setAttribute("aria-pressed", String(which === "ab"))
+  $("tab-run").setAttribute("aria-pressed", String(which === "run"))
   if (which === "ab") drawAB(); else drawRun()
 }
 $("tab-ab").addEventListener("click", () => show("ab"))

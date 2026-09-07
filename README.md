@@ -89,15 +89,16 @@ safety net is not what resolves this encounter.
 ### Run it
 
 ```bash
-npm run verify:theorem     # 0.7 s — the theorem
-npm test                   # 306 tests, 9 s
-npm run verify:braid-2     # 13 s — the scenario, under the shipped integrator
-npm run ablate             # 5.7 s — 600 runs
-npm run retrace:explore    # the schedule explorer, pointed at ourselves
+npm run verify:theorem     # 0.6 s — the theorem
+npm test                   # 313 tests, 13 s
+npm run verify:braid-2     # 20 s — the scenario, under the shipped integrator
+npm run ablate             # 9 s — 600 runs
+npm run retrace:explore    # 10 s — the schedule explorer, pointed at ourselves
 npm run demo:live          # 4 s — replays the recorded run
 ```
 
-Every one of them: under a minute, zero tokens, no API key, no network.
+Every one of them: under half a minute, zero tokens, no API key, no network. Timings are from one
+warm M-series laptop and will vary; the counts will not.
 
 ### What this is, precisely
 

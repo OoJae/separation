@@ -8,3 +8,16 @@ traces/
 
 # Internal planning notes — not for the public repo
 buildphases.md
+
+# Playwright MCP scratch output
+.playwright-mcp/
+
+# Demo film: composition source, script and inputs are tracked so the film is
+# re-renderable; the render itself is a build output and stays out of history.
+film/separation-film/node_modules/
+film/separation-film/snapshots*/
+film/separation-film/*.mp4
+film/vo16k.wav
+film/vo-transcript.json
+film/vo-words.json
+film/separation vo.m4a
