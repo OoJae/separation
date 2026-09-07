@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notebook — SEPARATION</title>
+<meta name="description" content="A theorem that was briefly false, a fabricated headline output, a bug-finder that explored nothing, an airlock inert under a wall clock. How the front-page numbers were arrived at.">
+<link rel="icon" href="site/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site/app.css">
+</head>
+<body class="doc">
+<div class="hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<header class="nav"><div class="wrap">
+<a href="./" aria-label="SEPARATION, home"><svg viewBox="0 0 240 96" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.25" opacity=".55"><circle cx="48" cy="48" r="29"/><circle cx="192" cy="48" r="29"/></g><g fill="currentColor"><rect x="45" y="45" width="6" height="6"/><rect x="189" y="45" width="6" height="6"/></g><g stroke="var(--phosphor)" stroke-width="1.25"><path d="M77 48 H113"/><path d="M127 48 H163"/><path d="M77 40 V56"/><path d="M163 40 V56"/></g><text x="120" y="52" text-anchor="middle" fill="var(--phosphor)" font-family="ui-monospace, Menlo, monospace" font-size="13">3.0</text></svg></a>
+<nav><ul><li><a href="theorem.html">Theorem</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="findings.html">Findings</a></li><li><a href="notebook.html" aria-current="page">Notebook</a></li><li><a href="viewer/">Run it</a></li></ul></nav>
+</div></header>
+<main class="wrap prose">
+<p class="eyebrow">Engineering log</p>
+<h1>The long version, including what was wrong</h1>
+<p class="lede">A theorem that was briefly false, a fabricated headline output, a bug-finder that explored nothing, an airlock inert under a wall clock. How the front-page numbers were arrived at.</p>
+<hr class="rule">
+<p>The long version. This was the README until it reached 525 lines, at which point it stopped being a front door and became a log — which is what it always was. Nothing here is cut from the project; it is the reasoning, the corrections and the numbers behind the claims on the <a href="../README.md">front page</a>.</p>
+<p>It is kept deliberately, because a quarter of it is a record of things this project got <strong>wrong</strong> and then fixed: a theorem that was briefly false, a fabricated headline output, a bug-finder that explored nothing, a cost axis that mixed two conventions, an airlock that was inert under a wall clock. A reader who wants to know whether the numbers on the front page can be trusted should read how they were arrived at.</p>
+<hr class="rule">
+<p><strong>Contested authority over a world that will not wait.</strong></p>
+<h4>▶ <a href="https://oojae.github.io/separation/viewer/">Watch it, no install →</a></h4>
+<p>Two architectures, one seed, one integrator. The left pane loses separation; the right one does not. The only difference is whether the airlock was allowed to hold both half-formed clearances at once. Second tab: the recorded live run, where a peer's objection rewrites another agent's tool-call arguments <strong>while its turn is still open</strong> — <code>targetAltFt: 4000</code> → <code>7000</code>, shown as a diff.</p>
+<p>Three air-traffic controllers hold <em>overlapping</em> authority over the same aircraft. Their half-formed clearances are held together in one airlock, where a hazard that exists <strong>only in the intersection of two simultaneously-pending decisions</strong> is caught — and a peer's objection lands as <strong>rewritten function-call arguments inside a turn that is still open</strong>.</p>
+<p>Built on <a href="https://github.com/jigjoy-ai/mozaik">Mozaik</a> (<code>@mozaik-ai/core@4.0.5</code>) for the JigJoy × daily.dev × Hyperskill <em>Systems of Concurrent Agents</em> hackathon.</p>
+<p>Building it produced <strong>21 line-numbered findings against the shipped runtime</strong> — see <a href="docs/API-NOTES.md"><code>docs/API-NOTES.md</code></a>. Four are now filed upstream, each verified against the current <code>4.0.6</code> bundle: <a href="https://github.com/jigjoy-ai/mozaik/issues/113">#113</a> an <code>InterceptionHandler</code> returning <code>idle</code> crashes the process · <a href="https://github.com/jigjoy-ai/mozaik/issues/114">#114</a> <code>runLoop</code> swallows every failure, so a dead agent is indistinguishable from a silent one · <a href="https://github.com/jigjoy-ai/mozaik/issues/115">#115</a> <code>publish</code> is re-entrant, so participants observe different event orders · <a href="https://github.com/jigjoy-ai/mozaik/issues/116">#116</a> an unknown tool name leaks the in-flight set.</p>
+<blockquote>This is <strong>not</strong> a proposal to run an airspace on language models. The domain was chosen because a hard exogenous clock, incommensurable objectives, private information and real-time safety envelopes make the failure modes of concurrent agent systems <em>observable</em>. The deterministic reflex layer exists precisely to demonstrate that language models must be <strong>subordinate</strong> to a safety envelope they cannot override. The thesis is subordination, not autonomy.</blockquote>
+<h3>The claim</h3>
+<blockquote><strong>Validate-at-commit does not fail because it cannot see. It fails because by the time it has committed and looked, the other aircraft's window is shut.</strong></blockquote>
+<p>Two clearances are individually safe and jointly unsafe. The hazard <strong>is</strong> visible to anything holding both as pending intent — that is exactly what the interlock does, and exactly what validate-at-commit does not. And the two cannot be serialized: a serialized system cannot reach its second decision before 53 132 ms (turn + 8.0 s single-channel readback + turn), by which time the other aircraft's manoeuvre window has closed. <strong>Both orders fail.</strong> If only one did, the hazard would be serializable and the theorem would be false.</p>
+<p>It ships as a <strong>passing test</strong>, not a paragraph: <code>npm run verify:theorem</code>, zero tokens, no API key.</p>
+<h4>The money shot, live</h4>
+<p>Two controllers with contested authority over one aircraft, both mid-turn, on a real model:</p>
+<p>&lt;!-- reproduced-by: demo:live --&gt;</p>
+<pre class="mono code"><code>[tool]             APPROACH -&gt; assess_traffic
+[tool]             FLOW -&gt; assess_traffic
+[tool]             APPROACH -&gt; probe_feasible
+[tool]             FLOW -&gt; probe_feasible
+[tool]             APPROACH -&gt; propose_clearance
+[intent.forming]   APPROACH -&gt; AAL221 (AAL221-dsc-4000)   inflight: 2
+[objection.raised] FLOW -&gt; APPROACH: "that descent crosses my metering block at CARDL"   INFLIGHT AT THIS MOMENT: 2
+[tool]             FLOW -&gt; propose_clearance
+[intent.forming]   FLOW -&gt; AAL221 (AAL221-desc-7000)   inflight: 2
+[tool]             APPROACH -&gt; commit_clearance
+[tool]             FLOW -&gt; commit_clearance
+
+desk: turn-1 narrowed  -&gt; AAL221-dsc-4000/peer-7000 {"targetAltFt":7000,"verticalRateFpm":2000}
+desk: turn-2 clean     -&gt; AAL221-desc-7000 {"targetAltFt":7000,"verticalRateFpm":2000}</code></pre>
+<p>APPROACH announced its intent from <em>inside</em> <code>propose_clearance</code>, before any clearance existed. FLOW objected while <strong>both turns were still open</strong> — <code>inflight: 2</code> is a readout of the scheduler, not a caption. APPROACH's held commit resumed with FLOW's counter-proposal — a narrowing, not a refusal — and APPROACH's own context now contains the rewritten call, so it can reason about having been narrowed. FLOW, reasoning from the same feasible set, arrived independently at 7000 — so the two controllers converge on one altitude by different routes, one of them by being overruled.</p>
+<p><code>npm run demo:live</code> replays this from a committed cache with <strong>zero API calls and no key</strong>.</p>
+<h4>Geometry loses to socially-obtained information</h4>
+<p>The sharpest answer to <em>"what did the language models decide that a solver could not?"</em> The FeasibleSet offers <strong>18 separation-safe options</strong> for the medical aircraft. Six of them will be refused by the crew — and <strong>nothing the controller can see says which.</strong> Not the world, not a snapshot, not the FeasibleSet. Live:</p>
+<pre class="mono code"><code>  Of those 18 separation-safe options, 6 would be REFUSED by the crew:
+    slow-to-180, slow-to-210, turn-left-30, turn-left-30-expedite,
+    turn-right-30, turn-right-30-expedite
+
+APPROACH -&gt; assess_traffic -&gt; probe_feasible -&gt; query_pilot
+                                                    |  parked, its turn open and blocked
+AAL77   -&gt; report_constraint  "Medical emergency on board — passenger condition
+                               deteriorating. Need shortest possible track to the runway."
+APPROACH -&gt; propose_clearance -&gt; commit_clearance</code></pre>
+<p>The controller <strong>spent part of its manoeuvre window to ask</strong>, and the fact that decided the answer exists only in that pilot's closure. <code>npm run verify:social-information</code> replays the whole exchange from the committed cache with <strong>zero API calls</strong>.</p>
+<p>Two things are worth saying about how that result was obtained, because neither was staged. It came last, after the loop was connected — for several rounds this section honestly reported that the model did <strong>not</strong> ask, and shipped a script that exited non-zero saying so. And it changed on a <strong>correctness fix, not a prompt</strong>: the fuel axis had been mixing absolute and marginal conventions, so the option set looked far more separable than it was. With one referent the eighteen options collapse to a two-option Pareto frontier whose members differ only in delay against fuel, and asking became worth its cost.</p>
+<p><strong>Asking is not free</strong>, which is what makes it a judgement. <code>query_pilot</code>'s <code>invoke()</code> awaits the reply and <code>FunctionCallState.run</code> awaits the tool, so the controller's whole turn is parked for the length of a pilot's turn — ~13 s against a ~44 s window. Guessing is not free either: a refused clearance is not flown, and the controller must plan again — a whole extra turn, and a turn is two inference rounds: <strong>22.6–34.6 s</strong> against the ~13 s a query costs.</p>
+<p><code>npm run verify:social-information</code> <strong>asserts the loop and reports the choice.</strong> It fails if the mechanism breaks — a clearance that never reaches the crew, a refusal that forces no re-plan, a query that never round-trips. Whether a model elects to spend window asking is reported, not asserted: a build that went red because a model exercised judgement differently would be measuring the wrong thing.</p>
+<h5>What was wrong with this before, in full</h5>
+<p>An earlier version of this section also claimed the controller asked — but on evidence that was not real, over a mechanism that was not connected. Both are worth stating, because the result above is only worth anything if the road to it is visible.</p>
+<ul><li><code>verify:social-information</code> instructed APPROACH to vector **AAL77 through a world containing only</li></ul>
+<p>  AAL221 and SWA455.** AAL77 had a pilot sheet but no aircraft state anywhere in the repo. It also   probed feasibility for <code>AAL221</code> while the instruction named AAL77. The controller was asking about   a phantom.</p>
+<ul><li><strong><code>clearance.issued</code> had a listener and no publisher.</strong> A committed clearance never reached the</li></ul>
+<p>  crew, so <code>refusalFor</code> never ran on a real clearance and no pilot had ever refused one.</p>
+<ul><li><strong><code>actuator.command.issued</code> likewise.</strong> The World subscribed to it and nothing published it, so no</li></ul>
+<p>  controller decision had ever moved metal. The trace flew a hardcoded BRAID-2 instead.</p>
+<ul><li><strong><code>refusalFor</code> keys on a turn magnitude; controllers emit absolute headings.</strong> Nothing translated,</li></ul>
+<p>  so every turn-based refusal rule in the repo was dead regardless of the events.</p>
+<ul><li><strong><code>pilot.unable</code> had no consumer</strong> but the trace writer — a refusal was, to the running system,</li></ul>
+<p>  indistinguishable from acceptance.</p>
+<ul><li><strong><code>pilot.reply</code> was never published.</strong> The query round-trip was closed by the evidence script</li></ul>
+<p>  itself: a tap sniffed the framework's <code>function_call.completed</code>, guessed a reply by substring, and   re-injected it with a hardcoded <code>queryId: "q1"</code>. The mechanism being demonstrated lived inside the   demonstration.</p>
+<ul><li><strong>The cost model overclaimed.</strong> <code>cost.ts</code> advertised "four genuinely incommensurable axes";</li></ul>
+<p>  <code>arrivalDelaySec</code> was an exact rescaling of <code>deltaTrackMilesNm</code>, <code>peakLoadFactor</code> was a hardcoded   <code>1.06</code> for every turn, and the speed-reduction option used to justify fuel as a separate axis did   not exist — <code>Command</code> had no speed field. All six turns were totally ordered, so a solver could   have taken an argmax.</p>
+<p>All of it is now connected. <code>peakLoadFactor</code> is computed from the bank a level turn requires (<code>sqrt(1 + (v·ω/g)²)</code> — multiply, divide and sqrt only, so the <code>Math.*</code> ban holds with no new exemption), the catalogue gained expedited turns and real speed reductions (10 → 18 templates), and <code>npm run record:trace</code> reports <code>2 controller command(s) flown</code> where it used to fly a script.</p>
+<p><strong>A later audit found the fuel axis was still incoherent, and fixing it moved the answer.</strong> Turns and descents reported the ABSOLUTE burn during the manoeuvre while speed reported a MARGINAL saving, so <code>+8.3 million</code> and <code>−63.8 million</code> were not comparable quantities — one was fuel spent over six seconds of turning, the other a saving over six minutes of flying. Nothing can be dominated or incomparable on an axis with no common referent. Every branch now answers the same question: what does this manoeuvre cost, or save, against simply carrying on.</p>
+<p>The honest consequence is that <strong>cost alone gets much further than we previously claimed.</strong> For AAL77 the 18 options reduce to a Pareto frontier of <strong>two</strong>: <code>descend-4000</code> and <code>slow-to-180</code>. An idle descent burns less than cruising, adds no track miles, arrives sooner and pulls no g, so it dominates every turn — and a turn is therefore never chosen for its cost, only for the <strong>margin</strong> it buys, which is geometry and deliberately not a cost.</p>
+<p>What survives is the part that matters. Those two frontier options are genuinely incomparable: both add zero track miles, one arrives six seconds early, the other saves half again as much fuel and arrives two and a half minutes late. Geometry cannot order them — and <strong>one of the two is a clearance this crew will refuse outright</strong>, which nothing the controller can see will tell it.</p>
+<h4>RETRACE found a real bug in this repo</h4>
+<p><code>npm run retrace:explore</code> permutes the scheduling surface this architecture exposes — outbox delivery order, timer order, and instrumented yield seams — within causal constraints, then checks invariants and shrinks any violating schedule to a minimal repro.</p>
+<p>Pointed at ourselves, it found the airlock quietly cheating:</p>
+<pre class="mono code"><code>every-hold-gets-its-settle:
+  turn-2 was adjudicated after 20ms of a promised 50ms settle window
+  — 30ms of objection opportunity lost
+
+  raw schedule: 24 decisions (18 non-default), 1 yield seam
+  shrunk to   : 1 decisions (0 non-default), 0 yield seams
+  replays     : REPRODUCES</code></pre>
+<p><code>hold()</code> scheduled a settle timer per turn, but <code>adjudicate()</code> drained the <strong>whole</strong> pending set on whichever timer fired first. A commit arriving 30 ms after its peer got 20 ms of protection instead of 50 — silently, and precisely when the sector is busy enough for two commits to overlap, which is exactly when a peer is most likely to object.</p>
+<p><strong>The shrinker's verdict is the interesting part.</strong> It reduced the schedule to <em>one decision, zero non-default picks, zero yield seams</em> — which is the shrinker saying <em>you did not need me</em>. This was never a race. It reproduced on the plain FIFO schedule and had been sitting there the whole time. Post-fix: baseline clean, 200/200 explored schedules clean.</p>
+<p><strong>And one prediction was half wrong, which is worth saying.</strong> Before building the tool I recorded two suspected bugs in the plan, so "RETRACE found a real bug" could not be redefined afterwards. The second was that <code>StandingBroker</code>'s <code>casWrite</code> passes <code>cell.token</code> as its own expected token — a tautology that can never fail. That reading is correct, but RETRACE found <strong>no violation</strong>, and investigating why gave the better answer: the site is <strong>unreachable</strong>, because <code>withGrant</code> denies a conflicting bid before the CAS is ever consulted. So it is dead code, not a live defect — an advertised safety mechanism doing nothing while something else quietly holds the invariant. Fixed anyway, because a mechanism that cannot fire is not a mechanism.</p>
+<h4>What RETRACE does not claim</h4>
+<p>It does <strong>not</strong> explore V8's microtask scheduler, and says so. The surface it explores is the one this architecture actually exposes: which queued event dispatches next, which due timer fires next, and whether an instrumented read-compute-write boundary yields. Causality is enforced by construction rather than by filtering — the outbox only ever offers events already published, the clock only offers timers already due — so no unreachable schedule is even expressible. That is what separates this from a random number generator with a violation counter.</p>
+<p>The seam is also <strong>non-invasive</strong>: the default policy reproduces the previous behaviour exactly, and all 306 tests pass unchanged with it installed. If that were not true, every determinism claim in Phases 2–5 would be suspect.</p>
+<h4>See it</h4>
+<p><code>viewer/index.html</code> replays a recorded run — radar scope, event log, and an <strong>in-flight strip</strong> where one bar per controller spans each turn's open→close.</p>
+<p><strong>When two bars overlap, two agents were thinking at the same time.</strong> That is the whole thesis as a picture, and it is a computed readout of <code>turn.started</code>/<code>turn.ended</code>, not a drawing: the same <code>TraceWriter.overlaps()</code> the viewer calls is asserted in <code>tests/instrument/trace.test.ts</code>, so the picture cannot claim something the run did not do. In the committed trace, APPROACH and FLOW overlap — the exact figure is printed by <code>record:trace</code> and stored in the trace, and it is wall clock, so it differs between a cached replay (~2.6 s) and a live run (~27 s). What is asserted is that the spans genuinely intersect, not any particular duration.</p>
+<pre class="mono code"><code>npm run record:ablation  # the A/B, pure geometry, no models
+npm run record:trace     # the agent run, replays from the committed cache, zero calls
+npm run viewer           # python3 http.server on :8080 — file:// cannot fetch the fixtures
+                         # then open http://localhost:8080/viewer/</code></pre>
+<h4>The ablation — 3 arms × 200 seeds, 600 runs, zero tokens</h4>
+<p>One deterministic decision policy across all three arms, so the only variable is the architecture.</p>
+<div class="tablewrap"><table class="mono">
+<thead><tr><th>arm</th><th>sep losses <em>(of 100 hazardous seeds)</em></th><th>joint hazards caught</th><th>content differs</th></tr></thead>
+<tbody>
+<tr><td>world-waits <em>(sequential-equivalent)</em></td><td>100</td><td>0</td><td><strong>0 (by construction)</strong></td></tr>
+<tr><td>concurrent, validate-at-commit only</td><td>100</td><td>0</td><td>0</td></tr>
+<tr><td><strong>concurrent + interlock</strong></td><td><strong>0</strong></td><td><strong>100</strong></td><td><strong>100</strong></td></tr>
+</tbody></table></div>
+<p><em>Column three is why it is not a pipeline.</em> It is 0 in the sequential arm <strong>by construction</strong> — no peer intent exists while a clearance is being formed, so nothing can change what is issued.</p>
+<p><em>Column two is why it is not a solver.</em> The joint hazard is invisible to the sequential arm <strong>and</strong> to validate-at-commit, and visible only to the airlock.</p>
+<p><strong>And the airlock is selective, which matters more than the totals.</strong> Half the seeds draw a shallow descent that Phase 2 established is safe. A mechanism that altered every clearance would be indistinguishable from one that understood nothing:</p>
+<pre class="mono code"><code>arm                        narrowed / hazardous    narrowed / safe
+concurrent + interlock            100 / 100              0 / 100</code></pre>
+<p><strong>The honest bound:</strong> these arms vary the <em>architecture</em>, not the model. The decision policy is fixed and deterministic across all three — which is what makes the difference attributable, and also means this measures what the architecture changes, not what a model would have chosen differently. Seeds vary scenario conditions only.</p>
+<h4>Why several Mozaik surfaces are unused</h4>
+<p>Phase 7 was scoped as "full surface coverage". We audited seven candidates adversarially and cut <strong>six of them</strong>; the seventh, quiescence, survives only as the demo's exit condition — it replaced a fixed 180-second sleep sitting in the evidence path, which is the whole of what it earned. Each was asked to earn its place with one sentence naming a domain need, without mentioning the framework. Where that sentence could not be written honestly, the surface was cut:</p>
+<ul><li><strong>A supervisor that proposes a re-split</strong> — nothing in this sector is ever overloaded. There is</li></ul>
+<p>  no load metric anywhere in the repo, so it would have needed us to invent the saturation it   responds to. Authority already redistributes at runtime through the bid-and-grant standing market.</p>
+<ul><li><strong>A capability-gated human seat</strong> — a seat defined by powers the other participants lack is the</li></ul>
+<p>  coordinator this whole design removes. Modelled honestly it is just another bidder into the   standing market, which we can already write.</p>
+<ul><li><strong>A relief controller spawned mid-negotiation</strong> — two concurrent holders demonstrate contested</li></ul>
+<p>  authority as completely as four would.</p>
+<ul><li><strong>Remote tools over MCP</strong> — the decisive information a controller must spend its window to get</li></ul>
+<p>  already comes from a pilot who has a stake, private constraints, and the ability to refuse. That   is strictly harder than a server that cannot argue back.</p>
+<ul><li><strong>Structured output</strong> — it governs the <em>message</em> channel (<code>output_config.format</code>), while our</li></ul>
+<p>  safety-critical boundary is a <em>tool call</em> whose schema already ships as <code>input_schema</code> with   required fields. It would not have typed the thing that needed typing.</p>
+<ul><li><strong>Streaming and mid-generation abort</strong> — substitution already stops a void clearance before it</li></ul>
+<p>  can become an action, so aborting would change <em>when</em> discarded work stops, not <em>whether</em> a wrong   instruction executes.</p>
+<p>The audit's sharpest finding was about our own reasoning: we had argued <em>"<code>setHandlers</code> is only used for construction wiring, therefore Adaptivity is our weakest leg"</em> — which defines a leg of an architectural thesis by a call site, and that inference generated all seven candidates.</p>
+<h4>The hole that audit found instead</h4>
+<p><code>InterlockDesk.parse</code> and <code>PremiseSentinel.parse</code> returned <code>null</code> for any unreadable commit, and both call sites then passed the transition through <strong>untouched</strong> — so a malformed <code>commit_clearance</code> routed around the airlock hold <em>and</em> the premise check. A path around the mechanism this project is named after, in that mechanism's own file.</p>
+<p>Only two of three failure modes were the bypass. A well-formed commit naming an unproposed clearance is legitimate — the tool answers <em>"unknown clearance X — propose it first"</em> — so refusing it too would have broken a working path. <code>parse</code> now returns <code>PendingClearance | "malformed" | "unresolved"</code>, and only <code>"malformed"</code> is refused, announced, and substituted with a <code>model_message</code> in place of the action. (The substituted message ends the turn rather than re-entering the agent's context — <code>model_message</code> routes to <code>idle</code> — so it stops the instruction, it does not brief the controller.)</p>
+<p>The demo also no longer ends on a 180-second sleep sitting in the evidence path — it exits when the sector is <strong>settled</strong>: no controller still deciding, nothing held unadjudicated. It now finishes in about 3 seconds and prints why it stopped.</p>
+<h4>Five limitations, stated plainly</h4>
+<p><strong>One vendor, not three.</strong> The design called for one seat of final authority per vendor, so a peer's objection would come from a genuinely different prior. Only one endpoint is configured, so all three seats run the same model. The seats still differ in authority, objective, standing and information — but <strong>the "different priors" claim is withdrawn</strong>. When FLOW objects to APPROACH, that is one model disagreeing with itself under a different brief. <code>MULTI_VENDOR</code> is a constant in the code, it is <code>false</code>, and a test asserts it.</p>
+<p><strong>The objection policy is deterministic code, not a model decision.</strong> The model decides what to <em>propose</em>; whether to <em>object</em> is currently a rule (<code>objectTo</code>). So the disagreement is real but its trigger is authored. Making objection model-driven is the obvious next step.</p>
+<p><strong>Only FLOW objects in the demo.</strong> APPROACH's policy returns <code>null</code>, which is why FLOW's own clearance passes clean in the trace above even though it is also a descent on AAL221. That asymmetry is in the demo configuration, not the mechanism.</p>
+<p><strong>We do not claim a model chose to deceive.</strong> One aircraft's sheet carries a fuel figure that does not reconcile with its observed burn. That discrepancy is <em>injected</em>, not decided by a model — because pilot and controller share weights here, so a "model caught a lying model" result would be self-play. Detection stays arithmetic (<code>ClaimLedger</code>, ground truth known), and the verdict says <code>cause: "unexplained"</code>, because a gauge fault, a leak and a shaded figure are indistinguishable from outside the aircraft. We never claimed to tell them apart.</p>
+<p><strong>The controller's question was generic.</strong> In the live trace it asked for position and altitude, not constraints; the pilot volunteered the medical, which is realistic crew behaviour but means the disclosure was not precisely elicited. Reported rather than re-rolled until it looked deliberate.</p>
+<h4>The calibration, stated up front</h4>
+<p>The two <strong>gate distances</strong> in the scenario are calibrated — they are chosen so both manoeuvre windows land inside the admissible band. That is a scenario parameter and this is us saying so before you find it.</p>
+<p>What is <em>not</em> calibrated is the band itself. It is derived from the controller-latency model (<code>src/domain/interlock/decision-latency.ts</code>) and contains no geometry at all: a window must exceed the slowest concurrent commit and fall below the fastest serialized one. <code>tests/theorem/theorem.test.ts</code> <strong>computes</strong> that band and asserts the gates lie strictly inside it.</p>
+<p><strong>That tripwire fired on the first live run, and we re-derived rather than clamped.</strong> The latency deciles were originally assumed at 1100–4499 ms. Measured against the real endpoint (n=10) they are <strong>11 283–17 291 ms — roughly 3× slower.</strong> So the deciles, the band and both gate distances were re-derived from the measurement:</p>
+<div class="tablewrap"><table class="mono">
+<thead><tr><th></th><th>assumed</th><th>measured</th></tr></thead>
+<tbody>
+<tr><td>one round</td><td>1100–4499 ms</td><td><strong>11 283–17 291 ms</strong></td></tr>
+<tr><td>admissible band</td><td>(8998, 12 400) ms — 3402 wide</td><td><strong>(34 580, 53 132) ms — 18 552 wide</strong></td></tr>
+<tr><td>gate A range</td><td>0.24 NM</td><td><strong>1.29 NM</strong></td></tr>
+<tr><td>serialized miss margin</td><td>1744 / 2600 ms</td><td><strong>9446 / 8770 ms</strong></td></tr>
+</tbody></table></div>
+<p>The correction made the result <strong>more</strong> robust, not less. A serialized decision pays two full turns plus the radio, so a slower model widens the gap between "one turn" and "two turns plus 8 s of readback". The band is 5.5× wider, gate placement is 5.5× more tolerant, and both serialization orders now miss by ~8.8 seconds instead of ~2.</p>
+<p>Each window is derived from real manoeuvre physics, not chosen: descending 5000 ft at 2000 fpm takes 150 s, and turning 12° then establishing 0.60 NM of offset takes 45.56 s.</p>
+<h4>The tripwire fired a second time — and that one was our own bug</h4>
+<p>An adversarial audit found that <code>evaluateJoint</code> was running the theorem's two halves on <strong>different clocks</strong>: it spent the evaluation instant against the manoeuvre windows, then flew the geometry from clearances baked at t=0 regardless of what commit time was being modelled. Fixing it exposed something worse than the bug.</p>
+<p>A joint hazard is not a static property of a scenario — <strong>it has a lifetime.</strong> BRAID-2's hazard exists because SWA455's turn steals lateral separation while AAL221's descent steals the vertical. Commit both later and the turn has less distance left to run, so the aircraft pass further apart, and past some instant they pass <em>legally</em>. There is then nothing for the interlock to catch.</p>
+<p>That lifetime was <strong>27.1 s</strong>, while the measured latency puts concurrent commits at <strong>22.6–34.6 s</strong>. The hazard was alive for the fast half of the range and dead for the slow half — a coin flip, not a theorem. The cause was the same re-derivation as above not going far enough: Phase 4 correctly moved the gates and the band when latency was measured, but nobody re-tuned the <em>encounter</em>, and the robustness grid still ran <code>[0 … 9.6] s</code> — <strong>3.6× narrower</strong> than the range the system actually operates in, so nothing failed.</p>
+<p>The geometry was re-calibrated (turn 20°→12°, SWA455 moved in, gate B re-derived 6.2→7.1 NM) and the hazard now lives <strong>53.9 s</strong>, covering the whole concurrent range with 19.3 s to spare — and it is still alive at the serialized instant, so the serialized arm demonstrably fails on the <em>window</em> alone rather than because the hazard evaporated.</p>
+<p><code>tests/theorem/hazard-lifetime.test.ts</code> now <strong>computes</strong> that lifetime by bisection over the shipped integrator and asserts it strictly contains the decision range. It fails on the old calibration (27.1 s). The commit-time grids were widened to span the real range. This is the tripwire the repo should have had in Phase 4, and its absence is why a stale calibration certified a theorem it no longer backed.</p>
+<h3>Status</h3>
+<div class="tablewrap"><table class="mono">
+<thead><tr><th>Phase</th><th></th><th></th></tr></thead>
+<tbody>
+<tr><td>0</td><td>The spike — prove the marquee mechanism exists before designing around it</td><td>✅</td></tr>
+<tr><td>1</td><td>Substrate — close the gaps the runtime leaves</td><td>✅</td></tr>
+<tr><td>2</td><td>Deterministic world, zero tokens</td><td>✅</td></tr>
+<tr><td>3</td><td>The interlock — <strong>the theorem as a test</strong></td><td>✅</td></tr>
+<tr><td>4</td><td>Live controllers</td><td>✅</td></tr>
+<tr><td>5</td><td>Live pilots, private constraints</td><td>✅</td></tr>
+<tr><td>6</td><td>RETRACE — schedule exploration</td><td>✅</td></tr>
+<tr><td>7</td><td>Truth pass — zero new surfaces</td><td>✅</td></tr>
+<tr><td>8</td><td>Viewer + ablation</td><td>✅</td></tr>
+</tbody></table></div>
+<h3>Reproduce</h3>
+<p>Everything below runs with <strong>no network and no API key</strong>. That is deliberate: a judge with a laptop and no credentials must still be able to reproduce the central claims.</p>
+<pre class="mono code"><code>npm install
+npm run spike               # regenerates spike/RESULTS.md against the shipped package
+npm test                    # the whole suite, zero tokens
+npm run verify:theorem      # THE THEOREM
+npm run verify:braid-2      # the scenario, measured by the shipped integrator
+npm run verify:reflex-silent  # proves TCAS never sees the joint hazard
+npm run verify:determinism  # same seed twice, byte-identical + state hash
+npm run verify:social-information  # the controller/pilot loop, asserted
+npm run ablate              # 3 arms x 200 seeds, 600 runs
+npm run retrace:explore     # 200 schedules over the scheduling surface
+npm run record:trace        # regenerates fixtures/trace.json from the cache
+npm run demo:live           # replays the live money shot, zero API calls
+npm run typecheck</code></pre>
+<h4>Why TCAS does not save you</h4>
+<p>If the collision-avoidance system resolved this encounter, the joint hazard would be something the safety net already handles and no architecture above it would matter. It does not: closest approach is <strong>2.3511 NM against an RA DMOD of 0.55 NM — 4.3× clear</strong>, and no RA or TA fires in any of the four cases over 380 s at the nominal geometry. Under the ±0.1 NM jitter envelope, <strong>no draw of 81 fires an RA</strong> — the margin that protects the thesis — while a TA appears in roughly a quarter of them. A TA commands no manoeuvre, so those runs are still unresolved encounters; the distinction is asserted in <code>tests/world/reflex-silent.test.ts</code> rather than glossed. The aircraft do cross co-altitude, so the <em>vertical</em> test would pass easily; an advisory needs both, and the range test never comes close.</p>
+<p>Stated rather than hidden: the TA margin is only 1.03×. A TA commands no manoeuvre, so even if geometry shifted enough to trigger one the encounter would still be unresolved.</p>
+<h3>What we had to build, and why</h3>
+<p>Mozaik is deliberately unopinionated about concurrency control — it ships no locks, no mutex, no change notification and no turn handle, and <code>runLoop</code> is fire-and-forget. Six subsystems follow directly from that, each traceable to a numbered finding in <a href="docs/API-NOTES.md"><code>docs/API-NOTES.md</code></a>:</p>
+<div class="tablewrap"><table class="mono">
+<thead><tr><th>Subsystem</th><th>Because</th></tr></thead>
+<tbody>
+<tr><td><code>VirtualClock</code></td><td><code>SemanticEvent.create</code> stamps <code>new Date()</code>, so replay needs an injected clock (#9)</td></tr>
+<tr><td><code>OutboxDispatcher</code></td><td><code>publish</code> is a synchronous re-entrant for-loop, so participants observe <strong>different event orders</strong> (#6)</td></tr>
+<tr><td><code>ContextLedger</code></td><td><code>addContextItems</code> mutates in place and returns <code>this</code>; <code>Memory</code> is not exported (#4, #7)</td></tr>
+<tr><td><code>TurnScheduler</code></td><td>one in-flight loop per agent, fresh context per turn, and the turnId↔loopId binding (#4, #13)</td></tr>
+<tr><td><code>OrphanRepair</code></td><td>a preempted turn leaves a <code>function_call</code> with no output, which every provider rejects (#2)</td></tr>
+<tr><td><code>SupervisingDriver</code></td><td><code>runLoop</code> has no <code>.catch()</code>, so a dead agent is indistinguishable from a silent one (#5)</td></tr>
+</tbody></table></div>
+<h4>One honest scope note</h4>
+<p>The outbox totally orders <strong>our</strong> domain events. Framework loop events (<code>inference.*</code>, <code>function_call.*</code>, <code>model.answer</code>) are published by mozaik's <code>EventPublisherLoopVisitor</code> directly and do <strong>not</strong> route through it; the Recorder stamps those with a separate observation seq. We claim ordering only for what we actually order.</p>
+<h4>Three preemption mechanisms, never conflated</h4>
+<p>Overclaiming is the fastest way to lose a room of framework authors, so these are logged separately and never merged in the narration:</p>
+<ul><li><strong><code>transition.rewritten</code></strong> — a peer's objection replaced a pending call's arguments via</li></ul>
+<p>  <code>FunctionCallItem.rehydrate</code>. The rewritten call is what executes <em>and</em> what lands in the agent's   context, so it reasons about having been narrowed. Verified in <code>spike/01</code>.</p>
+<ul><li><strong><code>transition.substituted</code></strong> — a completed inference whose premise died is replaced with a</li></ul>
+<p>  <code>model_message</code> before it can become an action. This is the honest form of "stop": an   <code>InterceptionHandler</code> <strong>cannot</strong> halt a turn (#1).</p>
+<ul><li><strong><code>runner.abort</code></strong> — our runner closed the provider stream mid-generation. We do <strong>not</strong> claim</li></ul>
+<p>  "tokens stop billing": on the aborted path <code>stream.finalMessage()</code> is never reached, so   <code>tokenUsage</code> is <code>undefined</code> and the claim would be unobservable from inside the process.</p>
+<h3>Invariants a reader can check with a grep</h3>
+<p>Not asserted in prose — machine-checked in <code>tests/substrate/invariants.test.ts</code>:</p>
+<ul><li>Nothing outside the clock adapter reads wall-clock time.</li><li>Only <code>state/cas-write.ts</code> can mutate shared state (gated on a module-private <code>SWAP</code> symbol).</li><li>No <code>instanceof</code> on an event payload — payloads lose their prototype in transit (#12).</li></ul>
+<h3>Layout</h3>
+<pre class="mono code"><code>spike/     Phase 0 receipts — every assertion + the runtime behaviour it probes
+src/
+  domain/          pure, no framework imports
+  state/           TraconState + THE single mutator
+  support/         clock, outbox, composite interception, tool contract
+  infrastructure/  scheduling (turns, ledgers, orphan repair), driver
+  participants/    recorder, identity book
+tests/substrate/   the Phase 1 gate
+docs/API-NOTES.md  21 findings against @mozaik-ai/core@4.0.5, with evidence</code></pre>
+<h3>License</h3>
+<p>MIT</p>
+</main>
+<footer><div class="wrap"><p class="dim mono">
+<a href="./">SEPARATION</a> · <a href="https://github.com/OoJae/separation">source</a>
+ · generated from <code>docs/NOTEBOOK.md</code> by <code>npm run build:site</code>
+</p></div></footer>
+</body>
+</html>

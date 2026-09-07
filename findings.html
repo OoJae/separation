@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Findings — SEPARATION</title>
+<meta name="description" content="Read from the compiled bundle and its sourcemap, not the documentation. Four are filed upstream; a fifth turned out to be already fixed when we re-checked before filing.">
+<link rel="icon" href="site/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site/app.css">
+</head>
+<body class="doc">
+<div class="hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<header class="nav"><div class="wrap">
+<a href="./" aria-label="SEPARATION, home"><svg viewBox="0 0 240 96" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.25" opacity=".55"><circle cx="48" cy="48" r="29"/><circle cx="192" cy="48" r="29"/></g><g fill="currentColor"><rect x="45" y="45" width="6" height="6"/><rect x="189" y="45" width="6" height="6"/></g><g stroke="var(--phosphor)" stroke-width="1.25"><path d="M77 48 H113"/><path d="M127 48 H163"/><path d="M77 40 V56"/><path d="M163 40 V56"/></g><text x="120" y="52" text-anchor="middle" fill="var(--phosphor)" font-family="ui-monospace, Menlo, monospace" font-size="13">3.0</text></svg></a>
+<nav><ul><li><a href="theorem.html">Theorem</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="findings.html" aria-current="page">Findings</a></li><li><a href="notebook.html">Notebook</a></li><li><a href="viewer/">Run it</a></li></ul></nav>
+</div></header>
+<main class="wrap prose">
+<p class="eyebrow">Runtime findings</p>
+<h1>21 findings against the shipped runtime</h1>
+<p class="lede">Read from the compiled bundle and its sourcemap, not the documentation. Four are filed upstream; a fifth turned out to be already fixed when we re-checked before filing.</p>
+<hr class="rule">
+<p>Twenty-one findings from building SEPARATION, verified against the <strong>shipped package</strong> (<code>dist/index.js</code> and its sourcemap), not the documentation. Each one is reproducible via <code>npm run spike</code>, which needs no network and no API key.</p>
+<p>Offered in the spirit of a precise bug report. Where we worked around something, the workaround is named so you can see exactly what a consumer has to build.</p>
+<hr class="rule">
+<p><strong>Four of these are filed upstream</strong>, each re-verified against the current <code>4.0.6</code> bundle before filing: <a href="https://github.com/jigjoy-ai/mozaik/issues/113">#113</a> (finding 1), <a href="https://github.com/jigjoy-ai/mozaik/issues/114">#114</a> (finding 5), <a href="https://github.com/jigjoy-ai/mozaik/issues/115">#115</a> (finding 6, with 15 folded in), <a href="https://github.com/jigjoy-ai/mozaik/issues/116">#116</a> (finding 13).</p>
+<p><strong>Finding 19 was FIXED in 4.0.6</strong> and is left below for the record rather than filed — <code>new DefaultInferenceRunner()</code> now constructs from outside the package. Re-checking before filing is what caught it; the note is retained because the workaround it forced is still visible in our code.</p>
+<h3>1. An <code>InterceptionHandler</code> cannot halt a turn, and attempting it kills the process</h3>
+<p><strong>Severity: high.</strong> <code>AgentLoop.run</code>:</p>
+<pre class="mono code"><code>while (transition.nextStateId !== "idle") {
+    const isInterceptionSatisfied = this.interceptionHandler?.isSatisfiedBy(transition)
+    if (isInterceptionSatisfied &amp;&amp; this.interceptionHandler) {
+        transition = await this.interceptionHandler.handle(transition)   // may return idle
+    }
+    const execution = await this.stateExecutor.execute(transition, loopVisitor)  // not re-checked
+    transition = this.transitionResolver.resolve(execution)
+}</code></pre>
+<p>The loop condition is evaluated at the top, but the transition returned by <code>handle()</code> is <strong>never re-tested against it</strong>. <code>LoopStateExecutor.execute</code> is an exhaustive <code>switch</code> over <code>ExecutableLoopStateId</code> with no <code>idle</code> case and no <code>default</code>, so it falls through and returns <code>undefined</code>; <code>TransitionResolver.resolve</code> then dereferences <code>execution.stateId</code>:</p>
+<pre class="mono code"><code>TypeError: Cannot read properties of undefined (reading 'stateId')</code></pre>
+<p>Because <code>createRunLoop</code> invokes <code>agentLoop.run(...)</code> with <strong>no <code>await</code> and no <code>.catch()</code></strong> (see #5), this surfaces as an unhandled rejection and terminates the process.</p>
+<p>The types already say halting is not allowed — <code>ExecutableLoopStateId = Exclude&lt;LoopStateId,"idle"&gt;</code> — so this is only reachable through a cast. But the failure mode for anyone who tries is a hard crash rather than a type error or a thrown, catchable exception.</p>
+<p><strong>Suggested fix:</strong> re-check the loop condition after the interception block (<code>if (transition.nextStateId === "idle") break</code>), or have <code>execute</code> throw a named error on a non-executable state.</p>
+<p><strong>Our workaround:</strong> we never halt. We <strong>substitute</strong> — rewriting the pending transition to <code>model_message</code> so the action is suppressed and the turn ends cleanly. Shipped as <code>transition.substituted</code>. Verified in <code>spike/02-cancellation.ts</code>.</p>
+<hr class="rule">
+<h3>2. Ending a stream without an <code>inference.output</code> throws — the abort path is a landmine</h3>
+<p><strong>Severity: high.</strong> <code>InferenceStreamingState.run</code>:</p>
+<pre class="mono code"><code>for await (const event of this.inferenceRunner.stream(input)) {
+    if (event.type === "inference.output") output = event.payload as InferenceOutput
+}
+if (!output) throw new Error("Inference output not found")</code></pre>
+<p>Any custom <code>InferenceRunner</code> that stops early — a cancellation, a provider refusal, an empty content block — ends its generator without emitting <code>inference.output</code> and throws. Combined with #5, that is a process kill rather than a failed turn.</p>
+<p><strong>Our workaround:</strong> the abort path <strong>always</strong> yields a synthesized <code>inference.output</code> carrying a <code>ModelMessageItem</code> before returning, which routes through <code>InferenceToModelMessageRule</code> → <code>model_message</code> → <code>idle</code>. Because mozaik's <code>for await</code> consumes <em>our</em> generator, we control termination, so preemption mid-generation is clean. Verified in <code>spike/03-abort.ts</code>.</p>
+<hr class="rule">
+<h3>3. Rewriting a pending <code>function_call</code> works, and the agent reasons about it — this is excellent</h3>
+<p><strong>Not a bug — the best thing in the API.</strong> <code>FunctionCallToInferenceRule</code> appends <code>execution.input.call</code>, i.e. the <strong>post-interception</strong> call:</p>
+<pre class="mono code"><code>previousRequest.context.addContextItems([execution.input.call, execution.output.item])</code></pre>
+<p>So an <code>InterceptionHandler</code> may replace a pending call's arguments via <code>FunctionCallItem.rehydrate({callId, name, args})</code>, the <strong>rewritten</strong> call is what executes, and the rewritten call lands in the agent's own context — meaning the agent's next inference sees that it was narrowed and can reason about it, instead of silently failing.</p>
+<p>This is the mechanism SEPARATION is built on: a peer's objection arriving as narrowed arguments <em>inside a turn that is still open</em>. Verified end to end in <code>spike/01-rewrite-readback.ts</code>.</p>
+<p><strong>One consequence worth documenting:</strong> the model's <em>original</em> arguments are never appended, so an agent cannot compare what it asked for against what it got. If you want that diff, you must inject it yourself.</p>
+<hr class="rule">
+<h3>4. <code>ModelContext.addContextItems</code> mutates in place and returns <code>this</code></h3>
+<p><strong>Severity: high for concurrent use.</strong></p>
+<pre class="mono code"><code>addContextItems(contextItems) { this.items.push(...contextItems); return this }</code></pre>
+<p><code>MessageReceivedState</code> also mutates the caller's context (<code>input.input.context.addContextItems([...])</code>). The <code>return this</code> reads like a persistent/immutable builder, so <code>const next = ctx.addContextItems(x)</code> silently aliases.</p>
+<p>Two concurrent <code>runLoop</code>s on one agent that share <code>agent.getMemory().getContext()</code> therefore interleave a <code>function_call</code> with a foreign <code>function_call_output</code> and hard-400 both Anthropic and OpenAI. Since <code>runLoop</code> is explicitly fire-and-forget and concurrency is the framework's headline, this is easy to hit.</p>
+<p><strong>Our workaround:</strong> a <code>TurnScheduler</code> owns a per-agent context ledger and builds a fresh <code>new ModelContext(id, items)</code> for every turn. The public constructor makes this possible.</p>
+<hr class="rule">
+<h3>5. <code>runLoop</code> swallows all failures — a dead agent is indistinguishable from a silent one</h3>
+<p><strong>Severity: high.</strong> <code>createRunLoop</code> ends with:</p>
+<pre class="mono code"><code>agentLoop.run({ content: message, input: inferenceInput }, loopVisitor)</code></pre>
+<p>No <code>await</code>, no <code>.catch()</code>, and <code>runLoop</code> returns <code>void</code>. Every error above — plus provider 400s and <code>No transition rule found after "inference"</code> on a truncated or refused response — becomes an unhandled rejection. On Node 26 that is fatal by default.</p>
+<p>In a system where participants infer consent from silence, an agent that dies publishing nothing is read by its peers as agreement.</p>
+<p><strong>Suggested fix:</strong> attach a <code>.catch()</code> that publishes a failure event (an <code>agent.failed</code> / <code>participant.halted</code> semantic event would fit the existing vocabulary).</p>
+<p><strong>Our workaround:</strong> a supervising driver with a global <code>unhandledRejection</code> handler, per-provider retry/backoff, and an explicit <code>participant.halted</code> event.</p>
+<hr class="rule">
+<h3>6. <code>publish</code> is synchronous, re-entrant, and uncaught — participants observe different orders</h3>
+<pre class="mono code"><code>publish(event) { for (const p of this.state.getParticipants()) this.processor.process(event, p) }
+process(event, consumer) { for (const h of consumer.getHandlers()) if (satisfied) h.processor.apply(...) }</code></pre>
+<p>There is no queue and no <code>try/catch</code>. If a situation processor calls <code>sendEvent</code>, <code>publish</code> re-enters depth-first, so participant A can observe event 2 before event 1 while participant B observes the reverse. A throwing processor propagates into whoever called <code>sendEvent</code> — often an unrelated participant.</p>
+<p>The docs' guarantee that "a slow listener never blocks producers" holds only for <code>async</code> processors, whose returned promise is discarded (and whose rejections are therefore unhandled — see #5).</p>
+<p><strong>Our workaround:</strong> an <code>OutboxDispatcher</code> that defers dispatch and stamps a monotonic <code>seq</code>, giving every participant one identical order. That order is also what makes deterministic replay possible.</p>
+<hr class="rule">
+<h3>7. <code>Memory</code> is not exported</h3>
+<p><code>Memory</code> is declared in <code>index.d.ts</code> but absent from the export list, so it cannot be constructed directly, and <code>Memory</code>'s context has no setter. Combined with #4, injecting a synthesized <code>FunctionCallOutputItem</code> — which is exactly what orphan repair and "you were overruled" feedback require — is only possible by owning the context outside the agent.</p>
+<hr class="rule">
+<h3>8. <code>maxOutputTokens</code> is honored by exactly one provider</h3>
+<p><code>request.max_tokens = inferenceInput.maxOutputTokens</code> appears <strong>once</strong> in the entire bundle, in <code>AnthropicMessagesMapper.toRequest</code>. The OpenAI Responses, OpenAI Chat Completions and Gemini mappers never read the field.</p>
+<p>A consumer setting <code>maxOutputTokens</code> for cost control gets it silently ignored on three of four providers — which matters when the participant count is high.</p>
+<hr class="rule">
+<h3>9. <code>SemanticEvent.create</code> stamps wall-clock time</h3>
+<pre class="mono code"><code>static create(type, producerId, payload) { const occurredAt = new Date(); ... }</code></pre>
+<p>Any system wanting deterministic replay must avoid the static factory and use the public constructor with an injected clock. Worth a line in the docs, since <code>create</code> is what every example uses.</p>
+<hr class="rule">
+<h3>10. <code>reasoningEffort</code> vocabularies are not uniform, and the docs don't say so</h3>
+<p>From the shipped <code>supportedModels</code>:</p>
+<div class="tablewrap"><table class="mono">
+<thead><tr><th>model</th><th>supported efforts</th></tr></thead>
+<tbody>
+<tr><td><code>gpt-5.4</code> / <code>gpt-5.5</code></td><td><code>xhigh, high, medium, low, none</code></td></tr>
+<tr><td><code>claude-haiku-4-5</code></td><td><code>high, medium, low, none</code></td></tr>
+<tr><td><code>claude-sonnet-4-6</code></td><td><code>max, high, medium, low</code></td></tr>
+<tr><td><code>claude-opus-4-8</code></td><td><code>max, xhigh, high, medium, low</code></td></tr>
+<tr><td><code>gemini-3.5-flash</code></td><td><code>high, medium, low, minimal, none</code></td></tr>
+</tbody></table></div>
+<p><code>none</code> is unavailable on Sonnet/Opus, <code>max</code> is unavailable on Haiku and OpenAI, and <code>minimal</code> is Gemini-only. Any hardcoded effort ladder breaks when a participant is moved between models, so effort must be read off <code>ModelSpecification.supportedReasoningEfforts</code> at call time.</p>
+<hr class="rule">
+<h3>11. Documentation drift: <code>context_update</code> vs <code>message_received</code></h3>
+<p><code>/docs/semantic-events</code> and <code>/docs/interception</code> describe the first loop state as <code>context_update</code> (and events <code>context_update.started</code> / <code>.completed</code>). The shipped <code>LoopStateId</code> and the runtime both use <code>message_received</code>. The compiled code is authoritative.</p>
+<hr class="rule">
+<h3>12. Event payloads lose their prototype in transit</h3>
+<p><strong>Severity: medium.</strong> <code>EventPublisherLoopVisitor.publish</code> builds every loop event as:</p>
+<pre class="mono code"><code>const event = new SemanticEvent(type, this.agentId, new Date(), { ...payload, loopId: this.loopId })</code></pre>
+<p>Spreading a class instance copies its own enumerable properties but drops the prototype. For <code>function_call.completed</code>, whose payload <em>is</em> a <code>FunctionCallOutputItem</code>, the subscriber receives a plain object:</p>
+<pre class="mono code"><code>original getType(): "function_call_output" | instanceof: true
+spread   getType(): undefined              | instanceof: false
+spread keys: type, callId, output, loopId</code></pre>
+<p>So a situation handler that does <code>payload instanceof FunctionCallOutputItem</code> or <code>payload.getType()</code> — the natural thing, given those are the domain types the docs teach — silently fails.</p>
+<p><strong>Suggested fix:</strong> carry the payload under a key (<code>{ item: payload, loopId }</code>) instead of spreading it, or document that payloads are structural rather than nominal.</p>
+<p><strong>Our workaround:</strong> we never use <code>instanceof</code> on an event payload and read fields structurally. Machine-checked by <code>tests/substrate/invariants.test.ts</code>.</p>
+<hr class="rule">
+<h3>13. An unknown tool name leaks the in-flight set</h3>
+<p><strong>Severity: medium.</strong> <code>FunctionCallState.run</code> publishes <code>function_call.started</code>, then:</p>
+<pre class="mono code"><code>let tool = inferenceInput.tools?.find((tool) =&gt; tool.name === call.name)
+if (!tool) {
+    return { stateId: this.id, input, output: { item: FunctionCallOutputItem.create(call.callId, `Error: unknown tool "${call.name}"`) } }
+}
+const item = await this.functionCallRunner.run(call, tool)
+loopVisitor.visitFunctionCallCompleted(item)</code></pre>
+<p>The early return skips <code>visitFunctionCallCompleted</code>, so <code>function_call.started</code> fires with <strong>no matching <code>function_call.completed</code></strong>. The loop itself recovers fine — the error output goes back to the model — but any observer tracking outstanding work by pairing those two events leaks one entry per unknown tool, permanently.</p>
+<p>That matters for the pattern the <code>baro</code> post describes: proving quiescence via an empty in-flight set. A hallucinated tool name — routine LLM behaviour — makes such a system believe work is outstanding forever.</p>
+<p><strong>Suggested fix:</strong> publish <code>function_call.completed</code> on the unknown-tool path too; it already has an output item to publish.</p>
+<p><strong>Our workaround:</strong> in-flight is keyed on <strong>turn lifecycle</strong> (<code>TurnScheduler</code>), never on <code>function_call.*</code> pairing.</p>
+<hr class="rule">
+<h3>14. Telemetry ships agent memory off-box, and constructs a client per turn</h3>
+<p><code>EventPublisherLoopVisitor</code> calls <code>createCloudClient()</code> in its constructor — once per <code>runLoop</code>, not once per process — and when <code>MOZAIK_API_KEY</code> is set it sends, on <strong>every event</strong>:</p>
+<pre class="mono code"><code>agent: { manifest, developerMessage, tools, memory: agent.getMemory().getContext().getItems() }</code></pre>
+<p>That is the agent's entire conversation, on every event, for every turn. Worth making explicit in the docs: it is a privacy consideration for anyone whose contexts contain user data, a bandwidth consideration at high event rates, and a determinism consideration for anyone recording runs.</p>
+<hr class="rule">
+<h3>15. <code>EventProcessor.process</code> neither awaits nor catches</h3>
+<pre class="mono code"><code>process(event, consumer) {
+    for (const handler of consumer.getHandlers()) {
+        if (handler.specification.isSatisfiedBy({ event, participant: consumer })) {
+            handler.processor.apply({ event, participant: consumer })
+        }
+    }
+}</code></pre>
+<p>Two consequences, both verified in <code>spike/04-loopless-participant.ts</code>:</p>
+<p><strong>A throwing processor escapes into the publisher.</strong> <code>RuntimeService.publish</code> has no <code>try/catch</code> either, so an exception in one participant's processor propagates out of whoever called <code>sendEvent</code> — usually an unrelated participant that merely announced something.</p>
+<p><strong>And it starves every participant after it.</strong> Fan-out is a <code>for</code> loop, so the throw abandons the iteration. Participants later in <code>getParticipants()</code> never see the event at all. In a system where silence is read as consent, one bad handler silently disenfranchises everyone downstream of it.</p>
+<p><code>SituationProcessor.apply</code> is typed <code>void | Promise&lt;void&gt;</code>, but the returned promise is discarded, so an <code>async</code> processor's rejection is unhandled (see #5) and its ordering is unspecified.</p>
+<p><strong>Our workaround:</strong> two machine-checked invariants — no <code>SituationProcessor.apply</code> may be <code>async</code>, and none may contain a <code>throw</code>. A rejected command <strong>publishes</strong> <code>world.command.rejected</code> instead.</p>
+<hr class="rule">
+<h3>16. <code>ParticipantManifest</code> and <code>ParticipantRole</code> are not exported, and the role vocabulary is closed</h3>
+<p><code>Participant</code> is exported; its manifest type is not (<code>index.d.ts:628</code>). A subclass must therefore write a bare object literal, which is fine but undiscoverable.</p>
+<p>More substantively, <code>ParticipantRole = "agent" | "human"</code>. There is no role for a participant that is neither — a clock, a physics integrator, a deterministic prober, a market. The framework's own blackboard thesis (HEARSAY-II) is precisely about <em>heterogeneous</em> experts sharing one board, and several of ours are not inferential at all. They currently declare <code>role: "agent"</code> and lie.</p>
+<p><strong>Suggested fix:</strong> a third role (<code>"machine"</code> / <code>"process"</code>), or documenting that <code>role</code> is advisory.</p>
+<hr class="rule">
+<h3>17. Prototype loss is narrower than it looks — it is the loop visitor, not the bus</h3>
+<p>Refining #12. <code>sendEvent</code> passes the <code>SemanticEvent</code> <strong>instance</strong> through by reference, and a payload handed to <code>new SemanticEvent(...)</code> keeps its prototype. Verified: a <code>FunctionCallOutputItem</code> published directly still answers <code>getType()</code> on the far side.</p>
+<p>The loss is introduced solely by <code>EventPublisherLoopVisitor.publish</code>, which spreads (<code>{...payload, loopId}</code>). So <strong>framework loop events have structural payloads; your own events do not have to.</strong> Worth documenting, because the natural inference from #12 — "never trust a payload" — is stricter than reality and would push consumers into unnecessary defensive code.</p>
+<hr class="rule">
+<h3>18. A non-Agent <code>Participant</code> may take a turn, until telemetry is switched on</h3>
+<p><code>runLoop(agentId, ...)</code> accepts any joined participant id. With <code>MOZAIK_API_KEY</code> unset a plain <code>Participant</code> completes a full turn — verified in <code>spike/05-bare-runloop.ts</code>.</p>
+<p>Switch telemetry on and the same code dies:</p>
+<pre class="mono code"><code>agent.getDeveloperMessage is not a function</code></pre>
+<p>because <code>EventPublisherLoopVisitor.publish</code> does:</p>
+<pre class="mono code"><code>const participant = this.runtime.getParticipant(this.agentId)
+const agent = participant as Agent
+if (agent) { /* getDeveloperMessage(), getTools(), getMemory() */ }</code></pre>
+<p>The cast is unchecked and <code>if (agent)</code> is a truthiness test that can never be false for a joined participant — so the guard reads like a type check but is not one.</p>
+<p>The failure mode is the bad kind: invisible in development, triggered by an environment variable, and surfacing as an unhandled rejection (#5) rather than a clear error.</p>
+<p><strong>Suggested fix:</strong> <code>if (participant instanceof Agent)</code>.</p>
+<p><strong>Our workaround:</strong> every Phase 2 participant is loop-less, and the runtime asserts <code>MOZAIK_API_KEY</code> is unset before construction.</p>
+<hr class="rule">
+<h3>19. <code>DefaultInferenceRunner</code> is exported but cannot be constructed from outside the package</h3>
+<pre class="mono code"><code>export declare class DefaultInferenceRunner implements InferenceRunner {
+    constructor(supportedModels: GenerativeModel[], requestValidator: InferenceInputValidator);</code></pre>
+<p><code>InferenceInputValidator</code> — the required second argument — is <strong>not</strong> in the export list. The only way to obtain a working <code>DefaultInferenceRunner</code> is <code>initializeRuntime</code> with no custom runner, which is precisely the case in which you cannot wrap it. A consumer wanting to add caching, budget control, latency measurement or multiplexing around the default runner has no supported path.</p>
+<p>Passing <code>undefined as any</code> compiles and works on paths that never call <code>.run()</code>, then throws on the first real call — the worst kind of type hole.</p>
+<p><strong>Suggested fix:</strong> export <code>InferenceInputValidator</code>, or give <code>DefaultInferenceRunner</code> a static factory that constructs one.</p>
+<p><strong>Our workaround:</strong> dispatch to <code>supportedModels[i].endpoint.infer(input)</code> directly — the endpoints <em>are</em> exported. That is what <code>DefaultInferenceRunner.run</code> does minus the validation step; we validate reasoning effort ourselves in <code>model-roster.ts</code>.</p>
+<hr class="rule">
+<h3>20. You cannot name the type the public config asks for</h3>
+<p><code>InferenceRunnerConfig</code> <strong>is</strong> exported:</p>
+<pre class="mono code"><code>export type InferenceRunnerConfig = {
+    supportedModels?: GenerativeModel[]
+    runner?: InferenceRunner
+}</code></pre>
+<p><code>GenerativeModel</code> and <code>ModelSpecification</code> are <strong>not</strong>. So registering a custom model — which the docs present as the supported extension point, and which <code>initializeRuntime</code> explicitly accepts — cannot be typed by a consumer. <code>Endpoint</code> is exported; the two types you need to actually build one are not.</p>
+<p>Same shape as #19: the entry point is public, one of its required types is private.</p>
+<p><strong>Suggested fix:</strong> export <code>GenerativeModel</code> and <code>ModelSpecification</code> alongside <code>Endpoint</code>.</p>
+<p><strong>Our workaround:</strong> <code>GenerativeModelLike</code> / <code>ModelSpecificationLike</code> in <code>src/infrastructure/inference/mimo.ts</code>, declared structurally to match the shipped shape. It works, because the runtime only reads fields — but it is a copy that will silently drift if the real type changes.</p>
+<hr class="rule">
+<h3>21. Third-party Anthropic-compatible endpoints work, and that is a design win</h3>
+<p>Pointing the shipped <code>AnthropicMessages</code> adapter at a compatible third party (MiMo / Xiaomi) needed <strong>no new provider code</strong>: the adapter already takes <code>{baseURL, apiKey}</code>, so a custom <code>GenerativeModel</code> plus a spec was the whole integration. Credit where it is due — that is the extension point working exactly as designed.</p>
+<p>Two portability notes found by testing the live endpoint rather than assuming:</p>
+<p><strong><code>thinking</code> blocks come back with an empty <code>signature</code>, and MiMo accepts them echoed back.</strong> Real Anthropic rejects an empty signature. <code>AnthropicMessagesMapper.toResponse</code> maps a <code>thinking</code> block to a <code>ReasoningItem</code> carrying <code>encryptedContent: block.signature</code>, and <code>mapContextItems</code> echoes it straight back on the next turn. So a context that survives against one Anthropic-compatible provider can 400 against another. Stripping <code>ReasoningItem</code>s (as <code>orphan-repair.ts</code> already does) turns out to be the <em>portable</em> choice, not just a defensive one.</p>
+<p><strong><code>max_tokens</code> is required by real Anthropic but optional here.</strong> The mapper does <code>request.max_tokens = inferenceInput.maxOutputTokens!</code> — a non-null assertion over an optional field. Omit <code>maxOutputTokens</code> and <code>max_tokens: undefined</code> goes on the wire: fine against MiMo, a 400 against Anthropic. The <code>!</code> hides a real difference between providers.</p>
+</main>
+<footer><div class="wrap"><p class="dim mono">
+<a href="./">SEPARATION</a> · <a href="https://github.com/OoJae/separation">source</a>
+ · generated from <code>docs/API-NOTES.md</code> by <code>npm run build:site</code>
+</p></div></footer>
+</body>
+</html>

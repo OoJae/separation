@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 96" role="img"
+     aria-labelledby="mark-title mark-desc" fill="none">
+  <title id="mark-title">SEPARATION</title>
+  <desc id="mark-desc">Two protection volumes seen from above, held three nautical miles apart, with the gap dimensioned.</desc>
+
+  <!-- Two protection volumes in plan view. Each is 1.5 NM in radius, so the pair touches
+       exactly when the aircraft are 3.0 NM apart — the lateral minimum this project enforces.
+       The subject of the mark is the space between them, not the discs. -->
+  <g stroke="currentColor" stroke-width="1.25" opacity=".55">
+    <circle cx="48" cy="48" r="29"/>
+    <circle cx="192" cy="48" r="29"/>
+  </g>
+  <g stroke="currentColor" stroke-width="1" opacity=".22">
+    <circle cx="48" cy="48" r="17.5"/>
+    <circle cx="192" cy="48" r="17.5"/>
+  </g>
+
+  <!-- The returns themselves. Small, because they are not the point. -->
+  <g fill="currentColor">
+    <rect x="45" y="45" width="6" height="6"/>
+    <rect x="189" y="45" width="6" height="6"/>
+  </g>
+
+  <!-- The dimension. This is the mark. -->
+  <g stroke="var(--phosphor, #2FF08A)" stroke-width="1.25">
+    <path d="M77 48 H113"/>
+    <path d="M127 48 H163"/>
+    <path d="M77 40 V56"/>
+    <path d="M163 40 V56"/>
+  </g>
+  <text x="120" y="52" text-anchor="middle" fill="var(--phosphor, #2FF08A)"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="13" letter-spacing="0.06em">3.0</text>
+</svg>

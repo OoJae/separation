@@ -1,0 +1,226 @@
+/* SEPARATION — the instrument.
+   Colour extends viewer/index.html so the site and the demo read as one artifact.
+   No web fonts, no CDN, no network: this project's claim is that it needs none. */
+
+:root{
+  --void:      #06090D;   /* the scope surround */
+  --scope:     #0B1219;   /* the display face */
+  --chart:     #E6E1D6;   /* ink — sectional-chart buff, never pure white */
+  --phosphor:  #2FF08A;   /* the one accent */
+  --ra:        #FF4D3D;   /* loss of separation ONLY */
+  --rule:      #1A2530;   /* hairlines, range rings */
+  --dim:       #62788C;   /* secondary */
+
+  /* Participant colours exist only where they encode who decided what. */
+  --approach:  #4DA3FF;
+  --flow:      #C77DFF;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+
+  --out:  cubic-bezier(.16,1,.3,1);
+  --ease: cubic-bezier(.65,0,.35,1);
+
+  --gut: clamp(1.25rem, 4vw, 4rem);
+  --max: 78rem;
+}
+
+*,*::before,*::after{ box-sizing:border-box }
+html{ -webkit-text-size-adjust:100% }
+body{
+  margin:0; background:var(--void); color:var(--chart);
+  font:400 clamp(1rem,1.02vw,1.125rem)/1.6 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+/* Removed: a grain overlay. It is the most default award-site texture there is, it is the one
+   element here that serves nothing, and phosphor on near-black does not need help looking like a
+   display. One accessory off before leaving the house. */
+
+/* ── type ─────────────────────────────────────────────────────────────────
+   One rule, and it encodes something true: numbers are always mono, prose is
+   always sans. Data and narration never wear the same clothes — which is
+   exactly how a flight strip works. */
+
+.mono, code, kbd, .num, .label, .eyebrow{ font-family:var(--mono); font-variant-numeric:tabular-nums }
+
+.eyebrow{
+  font-size:.6875rem; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--dim); display:flex; gap:.75rem; align-items:center;
+}
+.eyebrow::after{ content:""; flex:1; height:1px; background:var(--rule) }
+
+h1,h2,h3{ margin:0; font-weight:400; text-wrap:balance }
+
+.wordmark{
+  font-family:var(--mono);
+  font-size:clamp(2.75rem,9vw,8.5rem);
+  line-height:.92; letter-spacing:.16em; text-transform:uppercase;
+  margin-inline-start:-.06em;               /* optical, so the S aligns to the grid */
+}
+h2{ font-size:clamp(1.75rem,3.6vw,3.25rem); line-height:1.04; letter-spacing:-.015em }
+h3{ font-size:clamp(1.125rem,1.6vw,1.375rem); line-height:1.25 }
+.lede{ font-size:clamp(1.0625rem,1.5vw,1.5rem); line-height:1.45; max-width:34ch }
+p{ margin:0 0 1em; max-width:62ch }
+.dim{ color:var(--dim) }
+.ra{ color:var(--ra) }
+.ph{ color:var(--phosphor) }
+
+a{ color:inherit; text-underline-offset:.22em; text-decoration-thickness:1px }
+a:focus-visible,button:focus-visible{
+  outline:2px solid var(--phosphor); outline-offset:3px; border-radius:2px;
+}
+
+/* ── the HUD frame: the page is the inside of a display ───────────────── */
+.hud{ position:fixed; inset:0; pointer-events:none; z-index:50 }
+.hud i{ position:absolute; width:14px; height:14px; border:1px solid var(--rule) }
+.hud i:nth-child(1){ top:14px; left:14px; border-right:0; border-bottom:0 }
+.hud i:nth-child(2){ top:14px; right:14px; border-left:0; border-bottom:0 }
+.hud i:nth-child(3){ bottom:14px; left:14px; border-right:0; border-top:0 }
+.hud i:nth-child(4){ bottom:14px; right:14px; border-left:0; border-top:0 }
+
+.wrap{ width:min(100% - var(--gut)*2, var(--max)); margin-inline:auto }
+
+/* ── nav ──────────────────────────────────────────────────────────────── */
+.nav{
+  position:sticky; top:0; z-index:40; background:color-mix(in srgb, var(--void) 88%, transparent);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--rule);
+}
+.nav .wrap{ display:flex; align-items:center; gap:1.5rem; padding:.85rem 0 }
+.nav svg{ width:74px; height:30px; color:var(--chart); flex:none }
+.nav ul{ list-style:none; display:flex; gap:1.35rem; margin:0 0 0 auto; padding:0;
+  font-family:var(--mono); font-size:.75rem; letter-spacing:.1em; text-transform:uppercase }
+.nav a{ color:var(--dim); text-decoration:none; position:relative; padding-block:.35rem }
+.nav a::after{
+  content:""; position:absolute; left:0; right:0; bottom:0; height:1px;
+  background:var(--phosphor); transform:scaleX(0); transform-origin:left;
+  transition:transform .3s var(--out);
+}
+.nav a:hover,.nav a[aria-current]{ color:var(--chart) }
+.nav a:hover::after,.nav a[aria-current]::after{ transform:scaleX(1) }
+
+/* ── the status strip: live values, not decoration ────────────────────── */
+.strip{
+  border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.6875rem; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--dim);
+}
+.strip .wrap{ display:flex; flex-wrap:wrap; gap:.5rem 2rem; padding:.7rem 0 }
+.strip b{ color:var(--chart); font-weight:400 }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+.btn{
+  display:inline-flex; align-items:center; gap:.6rem;
+  font-family:var(--mono); font-size:.8125rem; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--chart); text-decoration:none; padding:.7rem 1.1rem;
+  border:1px solid var(--rule); background:transparent; cursor:pointer;
+  transition:border-color .3s var(--out), color .3s var(--out), transform .15s var(--ease);
+}
+.btn:hover{ border-color:var(--phosphor); color:var(--phosphor) }
+.btn:active{ transform:translateY(1px) }
+.btn--ghost{ border-color:transparent; padding-inline:0 }
+.btn--ghost:hover{ border-color:transparent }
+
+/* ── sections ─────────────────────────────────────────────────────────── */
+section{ padding-block:clamp(4rem,10vh,8rem) }
+.rule{ height:1px; background:var(--rule); border:0; margin:0 }
+
+/* ── reveal: one behaviour, fired once ────────────────────────────────── */
+.rv{ opacity:0; transform:translateY(14px); transition:opacity .8s var(--out), transform .8s var(--out) }
+.rv.in{ opacity:1; transform:none }
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{ animation-duration:.001ms !important; transition-duration:.001ms !important }
+  .rv{ opacity:1; transform:none }
+}
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+.hero{ padding-block:clamp(4rem,14vh,10rem) clamp(3rem,8vh,5rem) }
+.hero .eyebrow{ margin:0 0 1.75rem }
+.hero .lede{ margin:1.75rem 0 2.25rem }
+.hero .btn{ margin-right:.75rem }
+
+/* ── the pinned scene ─────────────────────────────────────────────────── */
+.scenewrap{ height:340vh; padding:0; position:relative }
+.scenepin{ position:sticky; top:0; height:100vh; overflow:hidden }
+.scenepin canvas{ position:absolute; inset:0; width:100%; height:100% }
+.sceneui{
+  position:absolute; inset:auto 0 0 0; padding-block:clamp(1.5rem,4vh,3rem);
+  background:linear-gradient(to top, var(--void) 12%, transparent);
+  pointer-events:none;
+}
+.sceneui h2{ max-width:20ch; margin:.6rem 0 .5rem }
+.sceneui p{ margin:0 }
+#sceneClock{ margin-top:.9rem; color:var(--phosphor); font-size:.8125rem; letter-spacing:.1em }
+
+/* ── two-up ───────────────────────────────────────────────────────────── */
+.cols{ display:grid; gap:2rem; grid-template-columns:1fr }
+@media (min-width:720px){ .cols{ grid-template-columns:1fr 1fr; gap:3rem } }
+.cols .num{ font-size:clamp(1.5rem,3vw,2.25rem); margin:.4rem 0 .3rem; letter-spacing:-.01em }
+.cols p{ margin:0 }
+
+/* ── the rewrite ──────────────────────────────────────────────────────── */
+.diff{
+  border:1px solid var(--rule); border-left:2px solid var(--phosphor);
+  background:var(--scope); padding:1.1rem 1.25rem; margin:1.75rem 0 2rem;
+  overflow-x:auto;
+}
+.diff p{ margin:0 0 .4rem; max-width:none; white-space:nowrap; font-size:.8125rem }
+.diff .was{ color:var(--ra); text-decoration:line-through; text-decoration-thickness:1px }
+.diff .now{ color:var(--phosphor) }
+.diff .because{ color:var(--flow); font-style:italic; font-family:var(--sans); margin:.75rem 0 0; white-space:normal }
+
+/* ── table ────────────────────────────────────────────────────────────── */
+.tablewrap{ overflow-x:auto; margin:1.75rem 0 1.5rem }
+table{ border-collapse:collapse; width:100%; font-size:.8125rem; min-width:34rem }
+th,td{ text-align:right; padding:.7rem 1rem; border-bottom:1px solid var(--rule); white-space:nowrap }
+th:first-child,td:first-child{ text-align:left }
+th{ color:var(--dim); font-weight:400; letter-spacing:.1em; text-transform:uppercase; font-size:.6875rem }
+tr.win td{ color:var(--phosphor) }
+
+/* ── code ─────────────────────────────────────────────────────────────── */
+.code{
+  border:1px solid var(--rule); background:var(--scope); padding:1.1rem 1.25rem;
+  overflow-x:auto; font-size:.8125rem; line-height:1.9; margin:1.75rem 0 1.5rem;
+}
+.code code{ font-family:inherit }
+
+/* ── footer ───────────────────────────────────────────────────────────── */
+footer{ border-top:1px solid var(--rule); padding-block:2.5rem 4rem }
+footer p{ font-size:.875rem }
+footer .mono{ font-size:.75rem }
+
+/* Reduced motion: the scene stops being a scroll toy and becomes one honest frame. */
+@media (prefers-reduced-motion: reduce){
+  .scenewrap{ height:auto }
+  .scenepin{ position:relative; height:min(78vh,620px) }
+}
+
+/* ── generated doc pages ──────────────────────────────────────────────── */
+.doc main{ padding-block:clamp(3rem,8vh,5rem) 6rem }
+.prose h1{ font-size:clamp(2rem,5vw,3.5rem); line-height:1.02; letter-spacing:-.02em; margin:.75rem 0 0 }
+.prose .lede{ margin:1.25rem 0 2rem; color:var(--chart) }
+.prose h2{ font-size:clamp(1.35rem,2.4vw,1.9rem); margin:3rem 0 .75rem; letter-spacing:-.01em }
+.prose h3{ margin:2.25rem 0 .5rem; color:var(--chart) }
+.prose h4,.prose h5,.prose h6{ font-size:1rem; margin:1.75rem 0 .4rem; color:var(--dim);
+  letter-spacing:.06em; text-transform:uppercase; font-family:var(--mono) }
+.prose p{ margin:0 0 1.15em }
+.prose ul{ margin:0 0 1.25em; padding-left:1.15rem }
+.prose li{ margin-bottom:.4em; max-width:62ch }
+.prose blockquote{
+  margin:1.5rem 0; padding:.9rem 1.1rem; border-left:2px solid var(--flow);
+  background:var(--scope); color:var(--chart); font-style:italic;
+}
+.prose blockquote p{ margin:0 }
+.prose code{ font-family:var(--mono); font-size:.875em; color:var(--phosphor);
+  background:color-mix(in srgb, var(--phosphor) 8%, transparent); padding:.1em .35em; border-radius:2px }
+.prose pre code{ background:none; padding:0; color:var(--chart) }
+.prose .rule{ margin:2.75rem 0 }
+.prose a{ color:var(--phosphor) }
+.prose strong{ color:var(--chart); font-weight:600 }
+
+/* ── figures ──────────────────────────────────────────────────────────── */
+.figure{ margin:2rem 0; padding:0 }
+.figure svg{ width:100%; height:auto; display:block; border:1px solid var(--rule); background:var(--scope) }
+.figure figcaption{ margin-top:.75rem; font-size:.8125rem; color:var(--dim); max-width:62ch }

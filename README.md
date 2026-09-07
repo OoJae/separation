@@ -10,11 +10,13 @@ cancel each other out. TCAS fixed that in the 1980s by making the two boxes exch
 exactly that — `selectSense()`, `isComplementary()` — for the aircraft. This project does the same
 thing one layer up, for the **controllers' decisions**, where no datalink exists.
 
-### ▶ [Run it in the browser — no install, no key](https://oojae.github.io/separation/viewer/)
+### ▶ [oojae.github.io/separation](https://oojae.github.io/separation/) — no install, no key
 
-Tab 1 is an A/B: one seed, one integrator, two architectures. The left pane loses separation at
-t+97.6 s; the right pane does not. The only difference is whether the airlock was allowed to hold
-both half-formed clearances at once. Tab 2 is the recorded agent run, with the rewrite as data.
+Scroll and the two protection volumes converge. One seed, one integrator, two architectures: the
+left pane loses separation at t+97.6 s and the right does not, and the only difference is whether the
+airlock was allowed to hold both half-formed clearances at once. The
+[interactive viewer](https://oojae.github.io/separation/viewer/) has the recorded agent run beside
+it, with the rewrite as data.
 
 The controllers are LLM agents on [Mozaik](https://github.com/jigjoy-ai/mozaik). Their half-formed
 clearances are held together in one airlock — a Mozaik `InterceptionHandler`, suspending a pending

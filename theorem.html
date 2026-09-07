@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The theorem — SEPARATION</title>
+<meta name="description" content="Validate-at-commit does not fail because it cannot see. It fails because by the time it has committed and looked, the other aircraft's window is shut.">
+<link rel="icon" href="site/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site/app.css">
+</head>
+<body class="doc">
+<div class="hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<header class="nav"><div class="wrap">
+  <a href="./" aria-label="SEPARATION, home"><svg viewBox="0 0 240 96" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.25" opacity=".55"><circle cx="48" cy="48" r="29"/><circle cx="192" cy="48" r="29"/></g>
+    <g fill="currentColor"><rect x="45" y="45" width="6" height="6"/><rect x="189" y="45" width="6" height="6"/></g>
+    <g stroke="var(--phosphor)" stroke-width="1.25"><path d="M77 48 H113"/><path d="M127 48 H163"/><path d="M77 40 V56"/><path d="M163 40 V56"/></g>
+    <text x="120" y="52" text-anchor="middle" fill="var(--phosphor)" font-family="ui-monospace, Menlo, monospace" font-size="13">3.0</text></svg></a>
+  <nav><ul>
+    <li><a href="theorem.html" aria-current="page">Theorem</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="findings.html">Findings</a></li>
+    <li><a href="notebook.html">Notebook</a></li>
+    <li><a href="viewer/">Run it</a></li>
+  </ul></nav>
+</div></header>
+<main class="wrap prose">
+  <p class="eyebrow">The theorem</p>
+  <h1>Both orders fail.</h1>
+  <p class="lede">Two clearances are individually safe and jointly unsafe. You cannot fix that by
+  doing one and then the other, because by the time the first has committed the second aircraft's
+  window has shut.</p>
+  <hr class="rule">
+
+  <blockquote>Validate-at-commit does not fail because it cannot see. It fails because by the time
+  it has committed and looked, the other aircraft's window is shut.</blockquote>
+
+  <h2>The windows are physics, the band is latency</h2>
+  <p>Each aircraft has a window: the span during which a clearance can still be issued early enough
+  for the manoeuvre to finish before its gate. That comes from the aircraft, not from us.</p>
+  <div class="tablewrap"><table class="mono">
+    <thead><tr><th>aircraft</th><th>gate</th><th>manoeuvre</th><th>window</th></tr></thead>
+    <tbody>
+      <tr><td>AAL221 → BAYLR</td><td>14.40 NM</td><td>150.00 s</td><td>44 360 ms</td></tr>
+      <tr><td>SWA455 → CARDL</td><td>7.10 NM</td><td>45.56 s</td><td>43 684 ms</td></tr>
+    </tbody>
+  </table></div>
+  <p>The admissible band — <span class="mono">(34 580, 53 132) ms</span> — comes from measured
+  decision latency and contains no geometry at all. The gate distances are calibrated to land inside
+  it; <strong>the band itself is not a free parameter</strong>, and a test recomputes it from the
+  latency model rather than asserting it.</p>
+
+  <h2>Where a serialized system arrives</h2>
+  <figure class="figure">
+    <svg viewBox="0 0 720 176" role="img" aria-label="A timeline. Both manoeuvre windows close before the earliest moment a serialized system can reach its second decision.">
+      <g font-family="ui-monospace, Menlo, monospace" font-size="11">
+        <line x1="40" y1="150" x2="690" y2="150" stroke="var(--rule)"/>
+        <g fill="var(--dim)">
+          <text x="40" y="168">0</text>
+          <text x="392" y="168" text-anchor="middle">34 580</text>
+          <text x="668" y="168" text-anchor="end">53 132 ms</text>
+        </g>
+        <rect x="40" y="40" width="503" height="20" fill="none" stroke="var(--phosphor)" opacity=".55"/>
+        <text x="52" y="54" fill="var(--phosphor)">AAL221 window · 44 360 ms</text>
+        <rect x="40" y="72" width="495" height="20" fill="none" stroke="var(--phosphor)" opacity=".55"/>
+        <text x="52" y="86" fill="var(--phosphor)">SWA455 window · 43 684 ms</text>
+        <line x1="392" y1="28" x2="392" y2="150" stroke="var(--chart)" stroke-dasharray="3 4" opacity=".5"/>
+        <text x="384" y="24" text-anchor="end" fill="var(--chart)">slowest concurrent commit</text>
+        <line x1="668" y1="28" x2="668" y2="150" stroke="var(--ra)"/>
+        <text x="660" y="112" text-anchor="end" fill="var(--ra)">serialized · second decision</text>
+        <line x1="543" y1="50" x2="668" y2="50" stroke="var(--ra)" stroke-dasharray="2 3"/>
+        <line x1="535" y1="82" x2="668" y2="82" stroke="var(--ra)" stroke-dasharray="2 3"/>
+      </g>
+    </svg>
+    <figcaption>Both windows have already closed by the time a serialized system reaches its second
+    decision. The concurrent commit, even at its slowest, is still inside both.</figcaption>
+  </figure>
+
+  <p>A serialized system cannot reach its <em>second</em> decision before
+  <span class="mono ph">53 132 ms</span> — one turn, plus 8.0 s of single-channel readback, plus
+  another turn. By then:</p>
+  <ul>
+    <li><span class="mono">A then B</span> — B is excluded, window closed, <strong>missed by 9 446 ms</strong></li>
+    <li><span class="mono">B then A</span> — A is excluded, window closed, <strong>missed by 8 770 ms</strong></li>
+  </ul>
+  <p><strong>Both orders fail.</strong> If only one did, the hazard would be serializable and the
+  theorem would be false. That is what makes it falsifiable rather than rhetorical.</p>
+  <p class="dim">Subtracting the windows from 53 132 gives 9 448 and 8 772 — two milliseconds more
+  than the figures above. Commit times quantise to the 10 ms master tick, so the commit lands on tick
+  5313, at 53 130 ms, and the misses are measured from there. The numbers are computed, not narrated.</p>
+
+  <h2>And the hazard does not wait</h2>
+  <p>Commit both clearances later than <span class="mono ph">53.9 s</span> and the aircraft pass
+  legally — there is nothing left to catch. So the hazard has to outlast the slowest decision the
+  architecture can make, and it does, by <span class="mono">19.3 s</span>. It is also still alive at
+  the serialized instant, which matters: the serialized arm does not get away with it because the
+  danger passed. It fails on the window alone.</p>
+
+  <h2>It ships as a test</h2>
+  <pre class="mono code"><code>npm run verify:theorem   <span class="dim"># 0.7 s, zero tokens, no API key</span></code></pre>
+  <p>Two named assertions, both required. The hazard is visible to anything holding both clearances
+  as pending intent — which is exactly what the airlock does and exactly what validate-at-commit does
+  not — and both serialization orders miss their window.</p>
+  <p><a class="btn" href="viewer/">Watch it run<span aria-hidden="true">→</span></a></p>
+</main>
+<footer><div class="wrap"><p class="dim mono"><a href="./">SEPARATION</a> · <a href="https://github.com/OoJae/separation">source</a></p></div></footer>
+</body>
+</html>

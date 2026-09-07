@@ -23,7 +23,8 @@
     "ablate": "tsx scripts/ablate.ts",
     "viewer": "python3 -m http.server 8080",
     "record:ablation": "tsx scripts/record-ablation.ts",
-    "demo": "npm run verify:theorem && npm run verify:braid-2 && npm run ablate && npm run record:ablation && npm run demo:live"
+    "demo": "npm run verify:theorem && npm run verify:braid-2 && npm run ablate && npm run record:ablation && npm run demo:live",
+    "build:site": "tsx scripts/build-site.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",

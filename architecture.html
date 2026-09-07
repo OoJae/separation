@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture — SEPARATION</title>
+<meta name="description" content="One airlock at the commit boundary, and the six things a concurrent agent runtime needs that the framework does not provide.">
+<link rel="icon" href="site/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site/app.css">
+</head>
+<body class="doc">
+<div class="hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<header class="nav"><div class="wrap">
+  <a href="./" aria-label="SEPARATION, home"><svg viewBox="0 0 240 96" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.25" opacity=".55"><circle cx="48" cy="48" r="29"/><circle cx="192" cy="48" r="29"/></g>
+    <g fill="currentColor"><rect x="45" y="45" width="6" height="6"/><rect x="189" y="45" width="6" height="6"/></g>
+    <g stroke="var(--phosphor)" stroke-width="1.25"><path d="M77 48 H113"/><path d="M127 48 H163"/><path d="M77 40 V56"/><path d="M163 40 V56"/></g>
+    <text x="120" y="52" text-anchor="middle" fill="var(--phosphor)" font-family="ui-monospace, Menlo, monospace" font-size="13">3.0</text></svg></a>
+  <nav><ul>
+    <li><a href="theorem.html">Theorem</a></li>
+    <li><a href="architecture.html" aria-current="page">Architecture</a></li>
+    <li><a href="findings.html">Findings</a></li>
+    <li><a href="notebook.html">Notebook</a></li>
+    <li><a href="viewer/">Run it</a></li>
+  </ul></nav>
+</div></header>
+<main class="wrap prose">
+  <p class="eyebrow">Architecture</p>
+  <h1>One gate, at the moment before commitment.</h1>
+  <p class="lede">Agents run concurrently and share state. The only place their intentions are
+  brought together is a single interception seat at the commit boundary — and that is deliberate,
+  because a joint hazard is not visible anywhere else.</p>
+  <hr class="rule">
+
+  <h2>The airlock</h2>
+  <p>Every <code>commit_clearance</code> passes through one Mozaik <code>InterceptionHandler</code>.
+  It suspends the pending <code>function_call</code> <em>without</em> ending the turn, holds it beside
+  whatever else is pending, and evaluates the set. Awaiting inside <code>handle()</code> suspends that
+  agent and nobody else — which is what makes the hold real rather than a metaphor.</p>
+  <p>If the set is jointly hazardous, one call is resumed with <strong>rewritten arguments</strong>.
+  Because Mozaik appends the post-interception call to the agent's own context, the agent then
+  reasons about having been narrowed. It is a narrowing, not a veto: the aircraft still gets a
+  clearance it can fly.</p>
+  <p>Aborting instead would be the database answer, and agent runtimes cannot afford it — an aborted
+  turn costs minutes of inference and dollars of tokens. That economic difference is the reason the
+  repair is a rewrite.</p>
+
+  <h2>Three preemption mechanisms, never conflated</h2>
+  <p>Each is logged under its own name, because collapsing them is how a demo starts overclaiming.</p>
+  <div class="tablewrap"><table class="mono">
+    <thead><tr><th>mechanism</th><th>what actually happens</th></tr></thead>
+    <tbody>
+      <tr><td>transition.rewritten</td><td>a pending call's arguments are replaced; the rewritten call executes</td></tr>
+      <tr><td>transition.substituted</td><td>a completed inference whose premise died is replaced before it becomes an action</td></tr>
+      <tr><td>runner.abort</td><td>our runner closed the provider stream — we do <em>not</em> claim tokens stop billing</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>What the framework does not provide</h2>
+  <p>Six subsystems, each answering a finding we could point at in the shipped bundle. They are the
+  reason the concurrency is real rather than asserted.</p>
+  <ul>
+    <li><strong>OutboxDispatcher</strong> — <code>publish</code> is synchronous and re-entrant, so
+    two participants can observe the same two events in opposite orders. Deferred dispatch gives
+    every participant one identical sequence. <a href="findings.html">Filed as #115.</a></li>
+    <li><strong>TurnScheduler</strong> — <code>ModelContext.addContextItems</code> mutates in place,
+    so concurrent turns sharing one agent's memory interleave a call with a foreign output and the
+    provider rejects it. One in-flight turn per agent, each with an owned context.</li>
+    <li><strong>OrphanRepair</strong> — every abort synthesises the missing
+    <code>function_call_output</code>, so being overruled becomes reasoning material rather than a
+    dangling call.</li>
+    <li><strong>Supervising driver</strong> — <code>runLoop</code> swallows every failure, so a dead
+    agent is indistinguishable from a silent one. A halted participant is announced.
+    <a href="findings.html">Filed as #114.</a></li>
+    <li><strong>VirtualClock</strong> — nothing outside the clock adapter reads wall-clock time, and
+    a test greps the tree to keep it that way. Without it there is no replay.</li>
+    <li><strong>Content-addressed inference cache</strong> — a recorded run replays byte-for-byte with
+    zero API calls, which is why every command on this site is free to run.</li>
+  </ul>
+
+  <h2>Determinism is the substrate, not a feature</h2>
+  <p>Headings are integer milli-degrees; time is an integer tick; fuel is integer milligrams. The
+  repo bans <code>Math.sin</code>, <code>cos</code>, <code>pow</code> and friends outright, with one
+  exemption — an 18 000-entry heading table with 720 checked-in golden vectors, so a platform whose
+  trigonometry differs in the last bit fails loudly at build time instead of drifting quietly.</p>
+  <p>That is what lets the same seed produce byte-identical runs, and what lets RETRACE explore
+  alternative schedules over the surface this architecture actually exposes.</p>
+
+  <h2>Read the rest</h2>
+  <p><a class="btn" href="findings.html">The 21 findings<span aria-hidden="true">→</span></a>
+  <a class="btn btn--ghost" href="notebook.html">The engineering log</a></p>
+</main>
+<footer><div class="wrap"><p class="dim mono"><a href="./">SEPARATION</a> · <a href="https://github.com/OoJae/separation">source</a></p></div></footer>
+</body>
+</html>

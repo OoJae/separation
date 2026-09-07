@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEPARATION — two agents, one aircraft, both right</title>
+<meta name="description" content="Two AI agents deciding at once can each be individually correct and jointly catastrophic. SEPARATION catches it before either commits — and ships the proof as a passing test.">
+<meta property="og:title" content="SEPARATION">
+<meta property="og:description" content="Each decision is safe. Together they are not — and neither exists yet while the other is being written.">
+<link rel="icon" href="site/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site/app.css">
+</head>
+<body>
+
+<div class="hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+<header class="nav">
+  <div class="wrap">
+    <a href="./" aria-label="SEPARATION, home">
+      <svg viewBox="0 0 240 96" fill="none" aria-hidden="true">
+        <g stroke="currentColor" stroke-width="1.25" opacity=".55">
+          <circle cx="48" cy="48" r="29"/><circle cx="192" cy="48" r="29"/></g>
+        <g fill="currentColor"><rect x="45" y="45" width="6" height="6"/><rect x="189" y="45" width="6" height="6"/></g>
+        <g stroke="var(--phosphor)" stroke-width="1.25">
+          <path d="M77 48 H113"/><path d="M127 48 H163"/><path d="M77 40 V56"/><path d="M163 40 V56"/></g>
+        <text x="120" y="52" text-anchor="middle" fill="var(--phosphor)" font-family="ui-monospace, Menlo, monospace" font-size="13">3.0</text>
+      </svg>
+    </a>
+    <nav><ul>
+      <li><a href="theorem.html">Theorem</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="findings.html">Findings</a></li>
+      <li><a href="notebook.html">Notebook</a></li>
+      <li><a href="viewer/">Run it</a></li>
+    </ul></nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow rv">Concurrent agents · Mozaik</p>
+      <h1 class="wordmark rv">Separation</h1>
+      <p class="lede rv">Two agents decide about the same aircraft at the same time. Each decision is
+      safe on its own. Together they are not — and neither one exists yet while the other is being
+      written.</p>
+      <p class="rv"><a class="btn" href="viewer/">Watch it run<span aria-hidden="true">→</span></a>
+      <a class="btn btn--ghost" href="theorem.html">Read the theorem</a></p>
+    </div>
+  </section>
+
+  <div class="strip">
+    <div class="wrap">
+      <span>Minima <b class="mono">3.0 NM / 1000 FT</b></span>
+      <span>Closest approach <b class="mono">2.3511 NM</b></span>
+      <span>Collision-avoidance advisories <b class="mono">0 in 81 draws</b></span>
+      <span>Ablation <b class="mono">600 runs, zero tokens</b></span>
+    </div>
+  </div>
+
+  <!-- THE SIGNATURE. Scroll drives simulated time through the real recorded frames. -->
+  <section class="scenewrap" id="scene">
+    <div class="scenepin">
+      <canvas id="scope" aria-label="Two aircraft protection volumes converging. The measured gap between them is shown in nautical miles and feet."></canvas>
+      <div class="sceneui">
+        <div class="wrap">
+          <p class="eyebrow">01 / The volumes</p>
+          <h2 id="sceneCaption">Each aircraft wears 3 nautical miles and a thousand feet.</h2>
+          <p class="dim" id="sceneBody">The two shapes touch exactly when the standard is broken.
+          Scroll to run the clock.</p>
+          <p class="mono num" id="sceneClock">t+000 s</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow rv">02 / Why this is drawn in three dimensions</p>
+      <h2 class="rv">A radar scope shows both outcomes as the same picture.</h2>
+      <p class="lede rv" style="margin-block:1.5rem 2rem">Across all 380 recorded frames the two
+      architectures are laterally identical. Both reach their closest approach of
+      <span class="mono ph">2.3511 NM</span> at the same second.</p>
+      <div class="cols">
+        <div class="rv">
+          <p class="eyebrow">Validate at commit</p>
+          <p class="num ra">400.67 ft apart</p>
+          <p class="dim">Vertical minimum broken. Separation lost at t+97.6 s.</p>
+        </div>
+        <div class="rv">
+          <p class="eyebrow">Interlock</p>
+          <p class="num ph">1000 ft apart</p>
+          <p class="dim">Exactly the standard. It corrected to the minimum, not past it.</p>
+        </div>
+      </div>
+      <p class="rv" style="margin-top:2rem">The plan view a controller actually looks at cannot tell
+      the catastrophe from the save. The third axis is the only one this story exists on.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow rv">03 / The repair</p>
+      <h2 class="rv">A peer rewrote the arguments of a call that was still open.</h2>
+      <div class="diff rv">
+        <p><span class="dim mono">proposed</span> <span class="mono was">{"targetAltFt":4000,"verticalRateFpm":2000}</span></p>
+        <p><span class="dim mono">executed</span> <span class="mono now">{"targetAltFt":7000,"verticalRateFpm":2000}</span></p>
+        <p class="because">because: “that descent crosses my metering block at CARDL”</p>
+      </div>
+      <p class="rv">The rewritten call is what ran, and what landed in the first agent's own context —
+      so it reasons about having been narrowed. A narrowing, not a refusal. Aborting would have cost
+      minutes of inference; databases can afford that and agent runtimes cannot.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow rv">04 / The ablation</p>
+      <h2 class="rv">Three architectures, 200 seeds each, one decision policy.</h2>
+      <div class="tablewrap rv">
+        <table class="mono">
+          <thead><tr><th>arm</th><th>losses</th><th>hazards caught</th><th>content differs</th></tr></thead>
+          <tbody>
+            <tr><td>world waits <span class="dim">(sequential)</span></td><td>100</td><td>0</td><td>0</td></tr>
+            <tr><td>concurrent, validate at commit</td><td>100</td><td>0</td><td>0</td></tr>
+            <tr class="win"><td>concurrent + interlock</td><td>0</td><td>100</td><td>100</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="rv">Of 100 hazardous seeds the interlock altered 100. Of 100 safe seeds it altered
+      none. <strong>A mechanism that altered everything would be indistinguishable from one that
+      understood nothing.</strong></p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow rv">05 / Run it yourself</p>
+      <h2 class="rv">Every claim on this page is a command away.</h2>
+      <pre class="mono code rv"><code>npm run verify:theorem     <span class="dim"># the theorem, 0.7 s</span>
+npm run verify:braid-2     <span class="dim"># the scenario, under the shipped integrator</span>
+npm run ablate             <span class="dim"># 600 runs</span>
+npm run demo:live          <span class="dim"># replays a recorded model run</span></code></pre>
+      <p class="rv">Zero tokens, no API key, no network. The live model run is recorded once and
+      replayed from a committed cache, so it costs nothing and cannot fail in front of you.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="dim">SEPARATION is an open proof that concurrent agents need a joint-action gate.
+    Built on <a href="https://github.com/jigjoy-ai/mozaik">Mozaik</a>; the work produced 21
+    line-numbered findings against the runtime, four of them
+    <a href="findings.html">filed upstream</a>. MIT.</p>
+    <p class="dim mono"><a href="https://github.com/OoJae/separation">github.com/OoJae/separation</a></p>
+  </div>
+</footer>
+
+<script type="module" src="site/ui.js"></script>
+</body>
+</html>
