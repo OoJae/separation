@@ -2,6 +2,13 @@
 
 **Contested authority over a world that will not wait.**
 
+### ▶ [Watch it, no install →](https://oojae.github.io/separation/viewer/)
+
+Two architectures, one seed, one integrator. The left pane loses separation; the right one does not.
+The only difference is whether the airlock was allowed to hold both half-formed clearances at once.
+Second tab: the recorded live run, where a peer's objection rewrites another agent's tool-call
+arguments **while its turn is still open** — `targetAltFt: 4000` → `7000`, shown as a diff.
+
 Three air-traffic controllers hold *overlapping* authority over the same aircraft. Their half-formed
 clearances are held together in one airlock, where a hazard that exists **only in the intersection of
 two simultaneously-pending decisions** is caught — and a peer's objection lands as **rewritten
@@ -231,8 +238,10 @@ clock, so it differs between a cached replay (~2.6 s) and a live run (~27 s). Wh
 that the spans genuinely intersect, not any particular duration.
 
 ```bash
-npm run record:trace     # replays from the committed cache, zero calls
-npm run viewer           # serves on :8080 — file:// cannot fetch the trace
+npm run record:ablation  # the A/B, pure geometry, no models
+npm run record:trace     # the agent run, replays from the committed cache, zero calls
+npm run viewer           # python3 http.server on :8080 — file:// cannot fetch the fixtures
+                         # then open http://localhost:8080/viewer/
 ```
 
 ### The ablation — 3 arms × 200 seeds, 600 runs, zero tokens
