@@ -220,8 +220,13 @@ describe("the airlock does not care where the clock's zero is", () => {
 			model: "flow", context: h.flow.getMemory().getContext(), tools: h.flow.getTools(),
 		}, h.desk.handler())
 
-		await settle()
-		await new Promise((r) => setTimeout(r, SETTLE_MS + 60))
+		// POLL, do not sleep. This is the only test in the suite driven by a real clock, and a fixed
+		// sleep made it pass alone and fail under full-suite load — the exact fixed-delay anti-pattern
+		// this repo removed from its evidence scripts.
+		const deadline = Date.now() + 5_000
+		while (h.desk.log().length === 0 && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 25))
+		}
 
 		const log = h.desk.log()
 		expect(log.length).toBeGreaterThan(0)

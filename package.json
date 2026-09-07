@@ -21,7 +21,8 @@
     "retrace:explore": "tsx scripts/retrace-explore.ts",
     "record:trace": "tsx scripts/record-trace.ts",
     "ablate": "tsx scripts/ablate.ts",
-    "viewer": "npx --yes serve . -l 8080"
+    "viewer": "python3 -m http.server 8080",
+    "record:ablation": "tsx scripts/record-ablation.ts"
   },
   "dependencies": {
     "@mozaik-ai/core": "4.0.5",

@@ -47,6 +47,17 @@ export type TraceBeat = {
 	readonly tSim: number
 	readonly kind: "intent" | "objection" | "held" | "narrowed" | "refused" | "loss" | "disclosure"
 	readonly text: string
+	/**
+	 * For a narrowing: what was proposed, what actually executed, and why.
+	 *
+	 * The rewrite IS the claim this project makes, and it cannot be shown from two clearance names.
+	 * Carrying the commands means the viewer renders real data rather than a caption.
+	 */
+	readonly diff?: {
+		readonly from: string
+		readonly to: string
+		readonly because: string
+	}
 }
 
 export type Trace = {
@@ -236,6 +247,9 @@ function beatFor(type: string, p: Payload, tSim: number): TraceBeat | null {
 		const text = p.event === "interlock.narrowed"
 			? `the desk narrowed ${str(p.from)} → ${str(p.to)}`
 			: `the desk is holding ${str(p.clearanceId)} (${str(p.pendingSetSize)} in the airlock)`
+		if (kind === "narrowed" && typeof p.fromCommand === "string" && typeof p.toCommand === "string") {
+			return { tSim, kind, text, diff: { from: p.fromCommand, to: p.toCommand, because: str(p.because) } }
+		}
 		return { tSim, kind, text }
 	}
 	return null

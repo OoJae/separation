@@ -290,6 +290,11 @@ export class InterlockDesk extends Participant {
 					this.deps.outbox.publish(WorldEvent.COMMAND_ACCEPTED, this.getId(), {
 						event: "interlock.narrowed", turnId: turn.turnId,
 						from: turn.clearance.id, to: narrowed.id,
+						// The COMMANDS, not just the ids. The rewrite is the claim this project makes,
+						// and a viewer cannot show "4000 became 7000" from two clearance names.
+						fromCommand: JSON.stringify(turn.clearance.command),
+						toCommand: JSON.stringify(committed.command),
+						because: objection?.reason ?? "jointly hazardous with a peer's pending clearance",
 					})
 				} else {
 					outcome = "deferred"
